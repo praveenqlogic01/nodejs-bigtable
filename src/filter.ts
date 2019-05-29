@@ -149,7 +149,8 @@ export class Filter {
    * var regexString = Filter.convertToRegExpString(['a', 'b', 'c']);
    * // => '(a|b|c)'
    */
-  static convertToRegExpString(regex: RegExp|string|string[]): string|Buffer {
+  static convertToRegExpString(regex: RegExp|number|string|Buffer|boolean|
+                               string[]|Buffer[]): string|Buffer {
     if (is.regexp(regex)) {
       return regex.toString().replace(/^\/|\/$/g, '');
     }
@@ -432,30 +433,31 @@ export class Filter {
    *   }
    * ];
    */
-  column(column?: ColumnRange):void {
+  column(column?: ColumnRange | string | RegExp |null):void {
       if (!is.object(column)) {
         column = {
           name: column,
         } as ColumnRange;
       }
 
-      if (column!.name) {
-        let name = Filter.convertToRegExpString(column!.name);
+      if ((column as ColumnRange).name) {
+        let name = Filter.convertToRegExpString((column as ColumnRange).name!);
 
         name = Mutation.convertToBytes(name) as string;
         this.set('columnQualifierRegexFilter', name);
       }
 
-      if (is.number(column!.cellLimit)) {
-        this.set('cellsPerColumnLimitFilter', column!.cellLimit);
+      if (is.number((column as ColumnRange).cellLimit)) {
+        this.set(
+            'cellsPerColumnLimitFilter', (column as ColumnRange).cellLimit);
       }
 
-      if (column!.start || column!.end) {
-        // tslint:disable-next-line no-any
-        const range: any =
-            Filter.createRange(column!.start!, column!.end!, 'Qualifier');
+      if ((column as ColumnRange).start || (column as ColumnRange).end) {
+        const range: any = Filter.createRange(
+            (column as ColumnRange).start!, (column as ColumnRange).end!,
+            'Qualifier');
 
-        range.familyName = column!.family;
+        range.familyName = (column as ColumnRange).family;
         this.set('columnRangeFilter', range);
       }
   }
