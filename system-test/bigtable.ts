@@ -15,7 +15,6 @@
  */
 
 import * as assert from 'assert';
-import Q = require('p-queue');
 import * as uuid from 'uuid';
 
 import {Bigtable} from '../src';
@@ -25,6 +24,7 @@ import {Family} from '../src/family.js';
 import {Row} from '../src/row.js';
 import {Table} from '../src/table.js';
 
+const Q = require('p-queue');
 const PREFIX = 'gcloud-tests-';
 
 describe('Bigtable', () => {
