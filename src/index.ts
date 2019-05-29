@@ -49,6 +49,58 @@ import * as through from 'through2';
 import {AppProfile} from './app-profile';
 import {Cluster} from './cluster';
 import {Instance} from './instance';
+import {ServiceError} from 'grpc';
+import {google as btTypes} from '../proto/bigtable';
+
+type RequestCallback<T, R = void> =
+    R extends void ? NormalCallback<T>: FullCallback<T, R>;
+type NormalCallback<T> = (err: ServiceError|null, response?: T|null) => void;
+type FullCallback<T, R> =
+    (err: ServiceError|null, response?: T|null, apiResponse?: R|null) => void;
+
+type ApiResponse<T, R = void> =
+    R extends void ? NormalResponse<T>: FullResponse<T, R>;
+type NormalResponse<T> = [T];
+type FullResponse<T, R> = [T, R];
+interface OptionInterface {
+  gaxOptions?: gax.CallOptions;
+}
+export type EmptyResponse = ApiResponse<btTypes.protobuf.IEmpty>;
+export type ExistsCallback = RequestCallback<boolean>;
+export type ExistsResponse = ApiResponse<boolean>;
+export type Arguments<T> = [(ServiceError | null),(T| null)?,any?];
+
+export type CreateAppProfileCallback =
+    RequestCallback<AppProfile, btTypes.bigtable.admin.v2.IAppProfile>;
+export type CreateAppProfileResponse =
+    ApiResponse<AppProfile, btTypes.bigtable.admin.v2.IAppProfile>;
+export type DeleteAppProfileCallback =
+    btTypes.bigtable.admin.v2.BigtableInstanceAdmin.DeleteAppProfileCallback;
+export type GetAppProfileCallback =
+    RequestCallback<AppProfile, btTypes.bigtable.admin.v2.IAppProfile>;
+export type GetAppProfileResponse =
+    ApiResponse<AppProfile, btTypes.bigtable.admin.v2.IAppProfile>;
+export type GetAppProfileMetadataCallback =
+    RequestCallback<AppProfile, btTypes.bigtable.admin.v2.IAppProfile>;
+export type GetAppProfileMetadataResponse =
+    ApiResponse<AppProfile, btTypes.bigtable.admin.v2.IAppProfile>;
+export type SetAppProfileMetadataCallback =
+    RequestCallback<btTypes.bigtable.admin.v2.IAppProfile>;
+export type SetAppProfileMetadataResponse =
+    ApiResponse<btTypes.bigtable.admin.v2.IAppProfile>;
+
+export interface AppProfileOptions extends OptionInterface {
+  routing: Cluster|'any';
+  allowTransactionalWrites?: boolean;
+  description?: string;
+  ignoreWarnings?: string;
+}
+
+export interface DeleteAppProfileOptions extends OptionInterface {
+  ignoreWarnings?: string;
+}
+
+
 
 const retryRequest = require('retry-request');
 const streamEvents = require('stream-events');
@@ -56,6 +108,7 @@ const streamEvents = require('stream-events');
 const PKG = require('../../package.json');
 const v2 = require('./v2');
 const {grpc} = new gax.GrpcClient();
+
 
 /**
  * @typedef {object} ClientConfig
