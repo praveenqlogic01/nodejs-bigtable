@@ -52,8 +52,7 @@ export class AppProfile {
       } else {
         throw new Error(`AppProfile id '${id}' is not formatted correctly.
 Please use the format 'my-app-profile' or '${
-          instance.name
-        }/appProfiles/my-app-profile'.`);
+            instance.name}/appProfiles/my-app-profile'.`);
       }
     } else {
       name = `${instance.name}/appProfiles/${id}`;
@@ -109,12 +108,11 @@ Please use the format 'my-app-profile' or '${
         };
         if (is.boolean(options.allowTransactionalWrites)) {
           appProfile.singleClusterRouting.allowTransactionalWrites =
-            options.allowTransactionalWrites;
+              options.allowTransactionalWrites;
         }
       } else {
         throw new Error(
-          'An app profile routing policy can only contain "any" or a `Cluster`.'
-        );
+            'An app profile routing policy can only contain "any" or a `Cluster`.');
       }
     }
 
@@ -174,14 +172,13 @@ Please use the format 'my-app-profile' or '${
     }
 
     this.bigtable.request(
-      {
-        client: 'BigtableInstanceAdminClient',
-        method: 'deleteAppProfile',
-        reqOpts,
-        gaxOpts: options.gaxOptions,
-      },
-      callback
-    );
+        {
+          client: 'BigtableInstanceAdminClient',
+          method: 'deleteAppProfile',
+          reqOpts,
+          gaxOpts: options.gaxOptions,
+        },
+        callback);
   }
 
   /**
@@ -262,22 +259,21 @@ Please use the format 'my-app-profile' or '${
     }
 
     this.bigtable.request(
-      {
-        client: 'BigtableInstanceAdminClient',
-        method: 'getAppProfile',
-        reqOpts: {
-          name: this.name,
+        {
+          client: 'BigtableInstanceAdminClient',
+          method: 'getAppProfile',
+          reqOpts: {
+            name: this.name,
+          },
+          gaxOpts: gaxOptions,
         },
-        gaxOpts: gaxOptions,
-      },
-      (...args) => {
-        if (args[1]) {
-          this.metadata = args[1];
-        }
+        (...args) => {
+          if (args[1]) {
+            this.metadata = args[1];
+          }
 
-        callback(...args);
-      }
-    );
+          callback(...args);
+        });
   }
 
   /**
@@ -327,14 +323,13 @@ Please use the format 'my-app-profile' or '${
     }
 
     this.bigtable.request(
-      {
-        client: 'BigtableInstanceAdminClient',
-        method: 'updateAppProfile',
-        reqOpts,
-        gaxOpts: gaxOptions,
-      },
-      callback
-    );
+        {
+          client: 'BigtableInstanceAdminClient',
+          method: 'updateAppProfile',
+          reqOpts,
+          gaxOpts: gaxOptions,
+        },
+        callback);
   }
 }
 
