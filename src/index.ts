@@ -49,6 +49,10 @@ import * as through from 'through2';
 import {AppProfile} from './app-profile';
 import {Cluster} from './cluster';
 import {Instance} from './instance';
+import {ServiceError} from 'grpc';
+import {google as btTypes} from '../proto/bigtable';
+import {Table} from './table';
+import {Family} from './family';
 
 const retryRequest = require('retry-request');
 const streamEvents = require('stream-events');
@@ -56,6 +60,93 @@ const streamEvents = require('stream-events');
 const PKG = require('../../package.json');
 const v2 = require('./v2');
 const {grpc} = new gax.GrpcClient();
+
+
+type RequestCallback<T, R = void> =
+    R extends void ? NormalCallback<T>: FullCallback<T, R>;
+type NormalCallback<T> = (err: ServiceError|null, response?: T|null) => void;
+type FullCallback<T, R> =
+    (err: ServiceError|null, response?: T|null, apiResponse?: R|null) => void;
+
+type ApiResponse<T, R = void> =
+    R extends void ? NormalResponse<T>: FullResponse<T, R>;
+type NormalResponse<T> = [T];
+type FullResponse<T, R> = [T, R];
+interface OptionInterface {
+  gaxOptions?: gax.CallOptions;
+}
+
+export interface AppProfileOptions extends OptionInterface {
+  routing: Cluster|'any';
+  allowTransactionalWrites?: boolean;
+  description?: string;
+  ignoreWarnings?: string|boolean;
+}
+
+export interface CreateTableOptions extends OptionInterface {
+  families?: Family[];
+  splits?: string[];
+}
+export interface CreateInstanceOptions extends OptionInterface {
+  clusters: Cluster[];
+  displayName: string;
+  labels?: {[key: string]: string};
+  type?: string;
+}
+
+export interface GetTablesOptions extends OptionInterface {
+  autoPaginate?: true;
+  maxApiCalls?: number;
+  maxResults?: number;
+  pageToken?: string;
+  view?: string;
+}
+
+export type EmptyResponse = ApiResponse<btTypes.protobuf.IEmpty>;
+export type ExistsCallback = RequestCallback<boolean>;
+export type ExistsResponse = ApiResponse<boolean>;
+
+export type CreateInstanceCallback =
+    (err: ServiceError, instance: Instance,
+     opertaion: btTypes.longrunning.Operation,
+     apiResponse: btTypes.bigtable.admin.v2.Instance) => void;
+export type CreateInstanceResponse = [
+  Instance, btTypes.longrunning.Operation, btTypes.bigtable.admin.v2.Instance
+];
+export type CreateAppProfileCallback =
+    RequestCallback<AppProfile, btTypes.bigtable.admin.v2.IAppProfile>;
+export type CreateAppProfileResponse =
+    ApiResponse<AppProfile, btTypes.bigtable.admin.v2.IAppProfile>;
+export type Arguments<T> = [(ServiceError | null),(T| null)?,any?];
+export type CreateTableCallback =
+    RequestCallback<Table, btTypes.bigtable.admin.v2.ITable>;
+export type CreateTableResponse =
+    ApiResponse<Table, btTypes.bigtable.admin.v2.ITable>;
+export type DeleteInstanceCallback = RequestCallback<btTypes.protobuf.Empty>;
+export type GetInstanceCallback =
+    RequestCallback<Instance, btTypes.bigtable.admin.v2.IInstance>;
+export type GetInstanceResponse =
+    ApiResponse<Instance, btTypes.bigtable.admin.v2.IInstance>;
+export type GetAppProfilesCallback =
+    RequestCallback<AppProfile[], btTypes.bigtable.admin.v2.IAppProfile[]>;
+export type GetAppProfilesResponse =
+    ApiResponse<AppProfile[], btTypes.bigtable.admin.v2.IAppProfile[]>;
+export type GetClustersCallback =
+    RequestCallback<Cluster[], btTypes.bigtable.admin.v2.IListClustersResponse>;
+export type GetClustersResponse =
+    ApiResponse<Cluster[], btTypes.bigtable.admin.v2.IListClustersResponse>;
+export type GetInstanceMetadataCallback =
+    RequestCallback<btTypes.bigtable.admin.v2.IInstance>;
+export type GetInstanceMetadataResponse =
+    ApiResponse<btTypes.bigtable.admin.v2.IInstance>;
+export type GetTablesCallback =
+    RequestCallback<Table[], btTypes.bigtable.admin.v2.ITable[]>;
+export type GetTablesResponse =
+    ApiResponse<Table[], btTypes.bigtable.admin.v2.ITable[]>;
+export type SetInstanceMetadataCallback =
+    RequestCallback<Instance, btTypes.bigtable.admin.v2.IInstance>;
+export type SetInstanceMetadataResponse =
+    ApiResponse<btTypes.bigtable.admin.v2.IInstance>;
 
 /**
  * @typedef {object} ClientConfig

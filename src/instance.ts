@@ -19,9 +19,14 @@ import {promisifyAll} from '@google-cloud/promisify';
 import * as is from 'is';
 import snakeCase = require('lodash.snakecase');
 import {AppProfile} from './app-profile';
-import {Cluster} from './cluster';
+import {Cluster, CreateClusterOptions, CreateClusterCallback, CreateClusterResponse, GetClusterResponse} from './cluster';
 import {Family} from './family';
 import {Table} from './table';
+import {Bigtable, CreateInstanceOptions, CreateInstanceCallback, CreateInstanceResponse, AppProfileOptions, CreateAppProfileCallback, CreateAppProfileResponse, Arguments, CreateTableOptions, CreateTableCallback, CreateTableResponse, DeleteInstanceCallback, EmptyResponse, ExistsResponse, GetInstanceCallback, GetInstanceResponse, GetAppProfilesCallback, GetAppProfilesResponse, GetClustersCallback, GetTablesOptions, GetTablesCallback, GetTablesResponse, SetInstanceMetadataCallback, SetInstanceMetadataResponse} from '.';
+import {google} from '../proto/bigtable';
+import {CallOptions} from 'google-gax';
+import {ExistsCallback, Metadata} from '@google-cloud/common';
+
 
 /**
  * Create an Instance object to interact with a Cloud Bigtable instance.
@@ -38,12 +43,12 @@ import {Table} from './table';
  */
 
 export class Instance {
-  bigtable;
-  id;
-  name;
-  metadata;
-  getTablesStream;
-  constructor(bigtable, id) {
+  bigtable: Bigtable;
+  id: string;
+  name: string;
+  metadata!: google.bigtable.admin.v2.IInstance;
+  getTablesStream!: Function;
+  constructor(bigtable: Bigtable, id: string) {
     this.bigtable = bigtable;
 
     let name;
@@ -59,7 +64,7 @@ Please use the format 'my-instance' or '${
       name = `${bigtable.projectName}/instances/${id}`;
     }
 
-    this.id = name.split('/').pop();
+    this.id = name.split('/').pop()!;
     this.name = name;
   }
 
@@ -75,8 +80,8 @@ Please use the format 'my-instance' or '${
    * Instance.getTypeType_('production');
    * // 1
    */
-  static getTypeType_(type) {
-    const types = {
+  static getTypeType_(type: string): number {
+    const types: {[key: string]: number} = {
       unspecified: 0,
       production: 1,
       development: 2,
@@ -95,7 +100,7 @@ Please use the format 'my-instance' or '${
    * @param {string} name The name of the app profile.
    * @returns {AppProfile}
    */
-  appProfile(name) {
+  appProfile(name: string): AppProfile {
     return new AppProfile(this, name);
   }
 
@@ -117,11 +122,17 @@ Please use the format 'my-instance' or '${
    * @example <caption>include:samples/document-snippets/instance.js</caption>
    * region_tag:bigtable_create_instance
    */
-  create(options, callback?) {
-    if (is.fn(options)) {
-      callback = options;
-      options = {};
-    }
+  create(options: CreateInstanceOptions): Promise<CreateInstanceResponse>;
+  create(callback: CreateInstanceCallback): void;
+  create(options: CreateInstanceOptions, callback: CreateInstanceCallback):
+      void;
+  create(
+      optionsOrCallback: CreateInstanceOptions|CreateInstanceCallback,
+      callback?: CreateInstanceCallback): void|Promise<CreateInstanceResponse> {
+    const options =
+        typeof optionsOrCallback === 'object' ? optionsOrCallback : {};
+    callback =
+        typeof optionsOrCallback === 'function' ? optionsOrCallback : callback;
 
     this.bigtable.createInstance(this.id, options, callback);
   }
@@ -154,42 +165,53 @@ Please use the format 'my-instance' or '${
    * @example <caption>include:samples/document-snippets/instance.js</caption>
    * region_tag:bigtable_create_app_profile
    */
-  createAppProfile(id, options, callback) {
-    if (is.function(options))
-      {
-        callback = options;
-        options = {};
-      }
-      if (!options.routing) {
-        throw new Error('An app profile must contain a routing policy.');
-      }
+  createAppProfile(
+      id: string, options: AppProfileOptions,
+      callback: CreateAppProfileCallback): void;
+  createAppProfile(id: string, options: AppProfileOptions):
+      Promise<CreateAppProfileResponse>;
+  createAppProfile(id: string, callback: CreateAppProfileCallback): void;
+  createAppProfile(
+      id: string, optionsOrCallback: AppProfileOptions|CreateAppProfileCallback,
+      callback?: CreateAppProfileCallback):
+      void|Promise<CreateAppProfileResponse> {
+    const options =
+        (typeof optionsOrCallback === 'object' ? optionsOrCallback : {}) as
+        AppProfileOptions;
+    callback =
+        typeof optionsOrCallback === 'function' ? optionsOrCallback : callback;
 
-      const appProfile = AppProfile.formatAppProfile_(options);
+    if (!options.routing) {
+      throw new Error('An app profile must contain a routing policy.');
+    }
 
-      const reqOpts: any = {
-        parent: this.name,
-        appProfileId: id,
-        appProfile,
-      };
+    const appProfile = AppProfile.formatAppProfile_(options);
 
-      if (is.boolean(options.ignoreWarnings)) {
-        reqOpts.ignoreWarnings = options.ignoreWarnings;
-      }
+    const reqOpts: any = {
+      parent: this.name,
+      appProfileId: id,
+      appProfile,
+    };
 
-      this.bigtable.request(
-          {
-            client: 'BigtableInstanceAdminClient',
-            method: 'createAppProfile',
-            reqOpts,
-            gaxOpts: options.gaxOptions,
-          },
-          (...args) => {
-            if (args[1]) {
-              args.splice(1, 0, this.appProfile(id));
-            }
 
-            callback(...args);
-          });
+    if (is.boolean(options.ignoreWarnings)) {
+      reqOpts.ignoreWarnings = options.ignoreWarnings;
+    }
+
+    this.bigtable.request(
+        {
+          client: 'BigtableInstanceAdminClient',
+          method: 'createAppProfile',
+          reqOpts,
+          gaxOpts: options.gaxOptions,
+        },
+        (...args: Arguments<AppProfile>) => {
+          if (args[1]) {
+            args.splice(1, 0, this.appProfile(id));
+          }
+
+          callback!(...args);
+        });
   }
 
   /**
@@ -219,50 +241,56 @@ Please use the format 'my-instance' or '${
    * @example <caption>include:samples/document-snippets/instance.js</caption>
    * region_tag:bigtable_create_cluster
    */
-  createCluster(id, options, callback) {
-    if (is.function(options))
+  createCluster(id: string, callback: CreateClusterCallback): void;
+  createCluster(
+      id: string, options: CreateClusterOptions,
+      callback: CreateClusterCallback): void;
+  createCluster(id: string, options: CreateClusterOptions):
+      Promise<CreateClusterResponse>;
+  createCluster(
+      id: string, optionsOrCallback: CreateClusterOptions|CreateClusterCallback,
+      callback?: CreateClusterCallback): void|Promise<CreateClusterResponse> {
+    const options =
+        (typeof optionsOrCallback === 'object' ? optionsOrCallback : {}) as
+        CreateClusterOptions;
+    callback =
+        typeof optionsOrCallback === 'function' ? optionsOrCallback : callback;
+
+    const reqOpts: any = {
+      parent: this.name,
+      clusterId: id,
+    };
+
+    if (!is.empty(options)) {
+      reqOpts.cluster = {};
+    }
+    if (options.location) {
+      reqOpts.cluster.location =
+          Cluster.getLocation_(this.bigtable.projectId, options.location);
+    }
+
+    if (options.nodes) {
+      reqOpts.cluster.serveNodes = options.nodes;
+    }
+    if (options.storage) {
+      const storageType = Cluster.getStorageType_(options.storage);
+      reqOpts.cluster.defaultStorageType = storageType;
+    }
+
+    this.bigtable.request(
         {
-          callback = options;
-          options = {};
-        }
+          client: 'BigtableInstanceAdminClient',
+          method: 'createCluster',
+          reqOpts,
+          gaxOpts: options.gaxOptions,
+        },
+        (...args: any[]) => {
+          if (args[1]) {
+            args.splice(1, 0, this.cluster(id));
+          }
 
-        const reqOpts: any = {
-          parent: this.name,
-          clusterId: id,
-        };
-
-        if (!is.empty(options)) {
-          reqOpts.cluster = {};
-        }
-
-        if (options.location) {
-          reqOpts.cluster.location =
-              Cluster.getLocation_(this.bigtable.projectId, options.location);
-        }
-
-        if (options.nodes) {
-          reqOpts.cluster.serveNodes = options.nodes;
-        }
-
-        if (options.storage) {
-          const storageType = Cluster.getStorageType_(options.storage);
-          reqOpts.cluster.defaultStorageType = storageType;
-        }
-
-        this.bigtable.request(
-            {
-              client: 'BigtableInstanceAdminClient',
-              method: 'createCluster',
-              reqOpts,
-              gaxOpts: options.gaxOptions,
-            },
-            (...args) => {
-              if (args[1]) {
-                args.splice(1, 0, this.cluster(id));
-              }
-
-              callback(...args);
-            });
+          callback!(...args);
+        });
   }
 
   /**
@@ -280,7 +308,8 @@ Please use the format 'my-instance' or '${
    * @param {object} [options.gaxOptions] Request configuration options, outlined
    *     here: https://googleapis.github.io/gax-nodejs/CallSettings.html.
    * @param {string[]} [options.splits] Initial
-   *    [split keys](https://cloud.google.com/bigtable/docs/managing-tables#splits).
+   *    [split
+   * keys](https://cloud.google.com/bigtable/docs/managing-tables#splits).
    * @param {function} callback The callback function.
    * @param {?error} callback.err An error returned while making this request.
    * @param {Table} callback.table The newly created table.
@@ -289,73 +318,78 @@ Please use the format 'my-instance' or '${
    * @example <caption>include:samples/document-snippets/instance.js</caption>
    * region_tag:bigtable_create_table
    */
-  createTable(id, options, callback) {
-        if (!id) {
-          throw new Error('An id is required to create a table.');
+  createTable(id: string, options?: CreateTableOptions):
+      Promise<CreateTableResponse>;
+  createTable(id: string, callback: CreateTableCallback): void;
+  createTable(
+      id: string, options: CreateTableOptions,
+      callback: CreateTableCallback): void;
+  createTable(
+      id: string, optionsOrCallback?: CreateTableOptions|CreateTableCallback,
+      callback?: CreateTableCallback): void|Promise<CreateTableResponse> {
+    if (!id) {
+      throw new Error('An id is required to create a table.');
+    }
+
+    const options =
+        typeof optionsOrCallback === 'object' ? optionsOrCallback : {};
+    callback =
+        typeof optionsOrCallback === 'function' ? optionsOrCallback : callback;
+
+    const reqOpts: any = {
+      parent: this.name,
+      tableId: id,
+      table: {
+        // The granularity at which timestamps are stored in the table.
+        // Currently only milliseconds is supported, so it's not
+        // configurable.
+        granularity: 0,
+      },
+    };
+
+    if (options.splits) {
+      reqOpts.initialSplits = options.splits.map(key => ({
+                                                   key,
+                                                 }));
+    }
+
+    if (options.families) {
+      const columnFamilies = options.families.reduce((families, family) => {
+        if (is.string(family)) {
+          family = {
+            name: family,
+          } as Family;
         }
 
-        options = options || {};
+        const columnFamily: google.bigtable.admin.v2.IColumnFamily =
+            ((families as any)[family.name] = {});
 
-    if (is.function(options))
-          {
-            callback = options;
-            options = {};
+        if ((family as any).rule) {
+          columnFamily.gcRule = Family.formatRule_((family as any).rule);
+        }
+
+        return families;
+      }, {});
+
+      reqOpts.table.columnFamilies = columnFamilies;
+    }
+
+    this.bigtable.request(
+        {
+          client: 'BigtableTableAdminClient',
+          method: 'createTable',
+          reqOpts,
+          gaxOpts: options.gaxOptions,
+        },
+        (...args: Arguments<Table>) => {
+          if (args[1]) {
+            const table = this.table(args[1].name.split('/').pop());
+            table.metadata = args[1];
+            args.splice(1, 0, table);
           }
 
-          const reqOpts: any = {
-            parent: this.name,
-            tableId: id,
-            table: {
-              // The granularity at which timestamps are stored in the table.
-              // Currently only milliseconds is supported, so it's not
-              // configurable.
-              granularity: 0,
-            },
-          };
-
-          if (options.splits) {
-            reqOpts.initialSplits = options.splits.map(key => ({
-                                                         key,
-                                                       }));
-          }
-
-          if (options.families) {
-            const columnFamilies =
-                options.families.reduce((families, family) => {
-                  if (is.string(family)) {
-                    family = {
-                      name: family,
-                    };
-                  }
-
-                  const columnFamily: any = (families[family.name] = {});
-
-                  if (family.rule) {
-                    columnFamily.gcRule = Family.formatRule_(family.rule);
-                  }
-
-                  return families;
-                }, {});
-
-            reqOpts.table.columnFamilies = columnFamilies;
-          }
-
-          this.bigtable.request(
-              {
-                client: 'BigtableTableAdminClient',
-                method: 'createTable',
-                reqOpts,
-                gaxOpts: options.gaxOptions,
-              },
-              (...args) => {
-                if (args[1]) {
-                  const table = this.table(args[1].name.split('/').pop());
-                  table.metadata = args[1];
-                  args.splice(1, 0, table);
-                }
-
-                callback(...args);
-              });
+          callback!(...args);
+        });
   }
 
   /**
@@ -364,8 +398,8 @@ Please use the format 'my-instance' or '${
    * @param {string} id The id of the cluster.
    * @returns {Cluster}
    */
-  cluster(id) {
-          return new Cluster(this, id);
+  cluster(id: string): Cluster {
+    return new Cluster(this, id);
   }
 
   /**
@@ -381,22 +415,28 @@ Please use the format 'my-instance' or '${
    * @example <caption>include:samples/document-snippets/instance.js</caption>
    * region_tag:bigtable_del_instance
    */
-  delete(gaxOptions, callback) {
-          if (is.fn(gaxOptions)) {
-            callback = gaxOptions;
-            gaxOptions = {};
-          }
+  delete(gaxOptions?: CallOptions): Promise<EmptyResponse>;
+  delete(callback: DeleteInstanceCallback): void;
+  delete(gaxOptions: CallOptions, callback: DeleteInstanceCallback): void;
+  delete(
+      gaxOptionsOrcallback?: CallOptions|DeleteInstanceCallback,
+      callback?: DeleteInstanceCallback): void|Promise<EmptyResponse> {
+    const gaxOptions =
+        typeof gaxOptionsOrcallback === 'object' ? gaxOptionsOrcallback : {};
+    callback = typeof gaxOptionsOrcallback === 'function' ?
+        gaxOptionsOrcallback :
+        callback;
 
-          this.bigtable.request(
-              {
-                client: 'BigtableInstanceAdminClient',
-                method: 'deleteInstance',
-                reqOpts: {
-                  name: this.name,
-                },
-                gaxOpts: gaxOptions,
-              },
-              callback);
+    this.bigtable.request(
+        {
+          client: 'BigtableInstanceAdminClient',
+          method: 'deleteInstance',
+          reqOpts: {
+            name: this.name,
+          },
+          gaxOpts: gaxOptions,
+        },
+        callback);
   }
 
   /**
@@ -412,25 +452,31 @@ Please use the format 'my-instance' or '${
    * @example <caption>include:samples/document-snippets/instance.js</caption>
    * region_tag:bigtable_exists_instance
    */
-  exists(gaxOptions?, callback?) {
-          if (is.fn(gaxOptions)) {
-            callback = gaxOptions;
-            gaxOptions = {};
-          }
+  exists(gaxOptions: CallOptions): Promise<ExistsResponse>;
+  exists(callback: ExistsCallback): void;
+  exists(gaxOptions: CallOptions, callback: ExistsCallback): void;
+  exists(
+      gaxOptionsOrcallback?: CallOptions|ExistsCallback,
+      callback?: ExistsCallback): void|Promise<ExistsResponse> {
+    const gaxOptions =
+        typeof gaxOptionsOrcallback === 'object' ? gaxOptionsOrcallback : {};
+    callback = typeof gaxOptionsOrcallback === 'function' ?
+        gaxOptionsOrcallback :
+        callback;
 
-          this.getMetadata(gaxOptions, err => {
-            if (err) {
-              if (err.code === 5) {
-                callback(null, false);
-                return;
-              }
+    this.getMetadata(gaxOptions, err => {
+      if (err) {
+        if (err.code === 5) {
+          callback!(null, false);
+          return;
+        }
 
-              callback(err);
-              return;
-            }
+        callback!(err);
+        return;
+      }
 
-            callback(null, true);
-          });
+      callback!(null, true);
+    });
   }
 
   /**
@@ -446,15 +492,20 @@ Please use the format 'my-instance' or '${
    * @example <caption>include:samples/document-snippets/instance.js</caption>
    * region_tag:bigtable_get_instance
    */
-  get(gaxOptions, callback) {
-          if (is.fn(gaxOptions)) {
-            callback = gaxOptions;
-            gaxOptions = {};
-          }
+  get(gaxOptions: CallOptions): Promise<GetInstanceResponse>;
+  get(callback?: GetInstanceCallback): void;
+  get(gaxOptions: CallOptions, callback?: GetInstanceCallback): void;
+  get(gaxOptionsOrcallback?: CallOptions|GetInstanceCallback,
+      callback?: GetInstanceCallback): void|Promise<GetInstanceResponse> {
+    const gaxOptions =
+        typeof gaxOptionsOrcallback === 'object' ? gaxOptionsOrcallback : {};
+    callback = typeof gaxOptionsOrcallback === 'function' ?
+        gaxOptionsOrcallback :
+        callback;
 
-          this.getMetadata(gaxOptions, (err, metadata) => {
-            callback(err, err ? null : this, metadata);
-          });
+    this.getMetadata(gaxOptions, (err, metadata) => {
+      callback!(err, err ? null : this, metadata);
+    });
   }
 
   /**
@@ -470,39 +521,45 @@ Please use the format 'my-instance' or '${
    * @example <caption>include:samples/document-snippets/instance.js</caption>
    * region_tag:bigtable_get_app_profiles
    */
-  getAppProfiles(gaxOptions, callback) {
-    if (is.function(gaxOptions))
-            {
-              callback = gaxOptions;
-              gaxOptions = {};
-            }
+  getAppProfiles(gaxOptions?: CallOptions): Promise<GetAppProfilesResponse>;
+  getAppProfiles(callback: GetAppProfilesCallback): void;
+  getAppProfiles(gaxOptions: CallOptions, callback: GetAppProfilesCallback):
+      void;
+  getAppProfiles(
+      gaxOptionsOrcallback?: CallOptions|GetAppProfilesCallback,
+      callback?: GetAppProfilesCallback): void|Promise<GetAppProfilesResponse> {
+    const gaxOptions =
+        typeof gaxOptionsOrcallback === 'object' ? gaxOptionsOrcallback : {};
+    callback = typeof gaxOptionsOrcallback === 'function' ?
+        gaxOptionsOrcallback :
+        callback;
 
-            const reqOpts = {
-              parent: this.name,
-            };
+    const reqOpts = {
+      parent: this.name,
+    };
 
-            this.bigtable.request(
-                {
-                  client: 'BigtableInstanceAdminClient',
-                  method: 'listAppProfiles',
-                  reqOpts,
-                  gaxOpts: gaxOptions,
-                },
-                (err, resp) => {
-                  if (err) {
-                    callback(err);
-                    return;
-                  }
+    this.bigtable.request(
+        {
+          client: 'BigtableInstanceAdminClient',
+          method: 'listAppProfiles',
+          reqOpts,
+          gaxOpts: gaxOptions,
+        },
+        (err: Error, resp: AppProfile[]) => {
+          if (err) {
+            callback!(err);
+            return;
+          }
 
-                  const appProfiles = resp.map(appProfileObj => {
-                    const appProfile =
-                        this.appProfile(appProfileObj.name.split('/').pop());
-                    appProfile.metadata = appProfileObj;
-                    return appProfile;
-                  });
+          const appProfiles = resp.map((appProfileObj: AppProfile) => {
+            const appProfile =
+                this.appProfile(appProfileObj.name.split('/').pop()!);
+            appProfile.metadata = appProfileObj;
+            return appProfile;
+          });
 
-                  callback(null, appProfiles, resp);
-                });
+          callback!(null, appProfiles, resp);
+        });
   }
 
   /**
@@ -519,39 +576,43 @@ Please use the format 'my-instance' or '${
    * @example <caption>include:samples/document-snippets/instance.js</caption>
    * region_tag:bigtable_get_clusters
    */
-  getClusters(gaxOptions, callback) {
-    if (is.function(gaxOptions))
-              {
-                callback = gaxOptions;
-                gaxOptions = {};
-              }
+  getClusters(gaxOptions: CallOptions): Promise<GetClusterResponse>;
+  getClusters(callback: GetClustersCallback): void;
+  getClusters(gaxOptions: CallOptions, callback: GetClustersCallback): void;
+  getClusters(
+      gaxOptionsOrcallback?: CallOptions|GetClustersCallback,
+      callback?: GetClustersCallback): void|Promise<GetClusterResponse> {
+    const gaxOptions =
+        typeof gaxOptionsOrcallback === 'object' ? gaxOptionsOrcallback : {};
+    callback = typeof gaxOptionsOrcallback === 'function' ?
+        gaxOptionsOrcallback :
+        callback;
 
-              const reqOpts = {
-                parent: this.name,
-              };
+    const reqOpts = {
+      parent: this.name,
+    };
 
-              this.bigtable.request(
-                  {
-                    client: 'BigtableInstanceAdminClient',
-                    method: 'listClusters',
-                    reqOpts,
-                    gaxOpts: gaxOptions,
-                  },
-                  (err, resp) => {
-                    if (err) {
-                      callback(err);
-                      return;
-                    }
+    this.bigtable.request(
+        {
+          client: 'BigtableInstanceAdminClient',
+          method: 'listClusters',
+          reqOpts,
+          gaxOpts: gaxOptions,
+        },
+        (err: Error, resp: google.bigtable.admin.v2.IListClustersResponse) => {
+          if (err) {
+            callback!(err);
+            return;
+          }
 
-                    const clusters = resp.clusters.map(clusterObj => {
-                      const cluster =
-                          this.cluster(clusterObj.name.split('/').pop());
-                      cluster.metadata = clusterObj;
-                      return cluster;
-                    });
+          const clusters = resp.clusters!.map((clusterObj) => {
+            const cluster = this.cluster(clusterObj.name!.split('/').pop()!);
+            cluster.metadata = clusterObj as Metadata;
+            return cluster;
+          });
 
-                    callback(null, clusters, resp);
-                  });
+          callback!(null, clusters, resp);
+        });
   }
 
   /**
@@ -567,28 +628,34 @@ Please use the format 'my-instance' or '${
    * @example <caption>include:samples/document-snippets/instance.js</caption>
    * region_tag:bigtable_get_instance_metadata
    */
-  getMetadata(gaxOptions, callback) {
-              if (is.fn(gaxOptions)) {
-                callback = gaxOptions;
-                gaxOptions = {};
-              }
+  getMetadata(gaxOptions?: CallOptions): Promise<GetInstanceResponse>;
+  getMetadata(callback: GetInstanceCallback): void;
+  getMetadata(gaxOptions: CallOptions, callback: GetInstanceCallback): void;
+  getMetadata(
+      gaxOptionsOrcallback?: CallOptions|GetInstanceCallback,
+      callback?: GetInstanceCallback): void|Promise<GetInstanceResponse> {
+    const gaxOptions =
+        typeof gaxOptionsOrcallback === 'object' ? gaxOptionsOrcallback : {};
+    callback = typeof gaxOptionsOrcallback === 'function' ?
+        gaxOptionsOrcallback :
+        callback;
 
-              this.bigtable.request(
-                  {
-                    client: 'BigtableInstanceAdminClient',
-                    method: 'getInstance',
-                    reqOpts: {
-                      name: this.name,
-                    },
-                    gaxOpts: gaxOptions,
-                  },
-                  (...args) => {
-                    if (args[1]) {
-                      this.metadata = args[1];
-                    }
+    this.bigtable.request(
+        {
+          client: 'BigtableInstanceAdminClient',
+          method: 'getInstance',
+          reqOpts: {
+            name: this.name,
+          },
+          gaxOpts: gaxOptions,
+        },
+        (...args: Arguments<Instance>) => {
+          if (args[1]) {
+            this.metadata = args[1];
+          }
 
-                    callback(...args);
-                  });
+          callback!(...args);
+        });
   }
 
   /**
@@ -614,39 +681,41 @@ Please use the format 'my-instance' or '${
    * @example <caption>include:samples/document-snippets/instance.js</caption>
    * region_tag:bigtable_get_tables
    */
-  getTables(options, callback) {
-    if (is.function(options))
-                {
-                  callback = options;
-                  options = {};
-                }
+  getTables(options?: GetTablesOptions): Promise<GetTablesResponse>;
+  getTables(callback: GetTablesCallback): void;
+  getTables(options: GetTablesOptions, callback: GetTablesCallback): void;
+  getTables(
+      optionsOrCallback?: GetTablesOptions|GetTablesCallback,
+      callback?: GetTablesCallback): void|Promise<GetTablesResponse> {
+    const options =
+        typeof optionsOrCallback === 'object' ? optionsOrCallback : {};
+    callback =
+        typeof optionsOrCallback === 'function' ? optionsOrCallback : callback;
 
-                const reqOpts = Object.assign({}, options, {
-                  parent: this.name,
-                  view: Table.VIEWS[options.view || 'unspecified'],
-                });
+    const reqOpts = Object.assign({}, options, {
+      parent: this.name,
+      view: (Table.VIEWS as any)[options.view || 'unspecified'],
+    });
 
-                delete reqOpts.gaxOptions;
+    delete reqOpts.gaxOptions;
 
-                this.bigtable.request(
-                    {
-                      client: 'BigtableTableAdminClient',
-                      method: 'listTables',
-                      reqOpts,
-                      gaxOpts: options.gaxOptions,
-                    },
-                    (...args) => {
-                      if (args[1]) {
-                        args[1] = args[1].map(tableObj => {
-                          const table =
-                              this.table(tableObj.name.split('/').pop());
-                          table.metadata = tableObj;
-                          return table;
-                        });
-                      }
-
-                      callback(...args);
-                    });
+    this.bigtable.request(
+        {
+          client: 'BigtableTableAdminClient',
+          method: 'listTables',
+          reqOpts,
+          gaxOpts: options.gaxOptions,
+        },
+        (...args: Arguments<Table[]>) => {
+          if (args[1]) {
+            args[1] = args[1].map(tableObj => {
+              const table = this.table(tableObj.name.split('/').pop());
+              table.metadata = tableObj;
+              return table;
+            });
+          }
+          callback!(...args);
+        });
   }
 
   /**
@@ -666,39 +735,53 @@ Please use the format 'my-instance' or '${
    * @example <caption>include:samples/document-snippets/instance.js</caption>
    * region_tag:bigtable_set_meta_data
    */
-  setMetadata(metadata, gaxOptions, callback) {
-                if (is.fn(gaxOptions)) {
-                  callback = gaxOptions;
-                  gaxOptions = {};
-                }
-                const reqOpts: any = {
-                  instance: Object.assign({name: this.name}, metadata),
-                  updateMask: {
-                    paths: [],
-                  },
-                };
-                const fieldsForMask = ['displayName', 'type', 'labels'];
+  setMetadata(
+      metadata: google.bigtable.admin.v2.IInstance,
+      gaxOptions?: CallOptions): Promise<SetInstanceMetadataResponse>;
+  setMetadata(
+      metadata: google.bigtable.admin.v2.IInstance,
+      callback: SetInstanceMetadataCallback): void;
+  setMetadata(
+      metadata: google.bigtable.admin.v2.IInstance, gaxOptions: CallOptions,
+      callback: SetInstanceMetadataCallback): void;
+  setMetadata(
+      metadata: google.bigtable.admin.v2.IInstance,
+      gaxOptionsOrcallback?: CallOptions|SetInstanceMetadataCallback,
+      callback?: SetInstanceMetadataCallback):
+      void|Promise<SetInstanceMetadataResponse> {
+    const gaxOptions =
+        typeof gaxOptionsOrcallback === 'object' ? gaxOptionsOrcallback : {};
+    callback = typeof gaxOptionsOrcallback === 'function' ?
+        gaxOptionsOrcallback :
+        callback;
+    const reqOpts: any = {
+      instance: Object.assign({name: this.name}, metadata),
+      updateMask: {
+        paths: [],
+      },
+    };
+    const fieldsForMask = ['displayName', 'type', 'labels'];
 
-                fieldsForMask.forEach(field => {
-                  if (field in reqOpts.instance) {
-                    reqOpts.updateMask.paths.push(snakeCase(field));
-                  }
-                });
+    fieldsForMask.forEach(field => {
+      if (field in reqOpts.instance) {
+        reqOpts.updateMask.paths.push(snakeCase(field));
+      }
+    });
 
-                this.bigtable.request(
-                    {
-                      client: 'BigtableInstanceAdminClient',
-                      method: 'partialUpdateInstance',
-                      reqOpts,
-                      gaxOpts: gaxOptions,
-                    },
-                    (...args) => {
-                      if (args[1]) {
-                        this.metadata = args[1];
-                      }
+    this.bigtable.request(
+        {
+          client: 'BigtableInstanceAdminClient',
+          method: 'partialUpdateInstance',
+          reqOpts,
+          gaxOpts: gaxOptions,
+        },
+        (...args: Arguments<Instance>) => {
+          if (args[1]) {
+            this.metadata = args[1];
+          }
 
-                      callback(...args);
-                    });
+          callback!(...args);
+        });
   }
 
   /**
@@ -713,8 +796,8 @@ Please use the format 'my-instance' or '${
    * const instance = bigtable.instance('my-instance');
    * const table = instance.table('presidents');
    */
-  table(id) {
-                return new Table(this, id);
+  table(id: string): Table {
+    return new Table(this, id);
   }
 }
 
@@ -766,8 +849,8 @@ promisifyAll(Instance, {
   exclude: ['appProfile', 'cluster', 'table'],
 });
 
-    /**
-     * Reference to the {@link Instance} class.
-     * @name module:@google-cloud/bigtable.Instance
-     * @see Instance
-     */
+/**
+ * Reference to the {@link Instance} class.
+ * @name module:@google-cloud/bigtable.Instance
+ * @see Instance
+ */

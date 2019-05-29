@@ -20,6 +20,7 @@ import * as Long from 'long';
 
 import {google as btTypes} from '../proto/bigtable';
 
+
 export type IMutation = btTypes.bigtable.v2.IMutation;
 export type IMutateRowRequest = btTypes.bigtable.v2.IMutateRowRequest;
 export type ISetCell = btTypes.bigtable.v2.Mutation.ISetCell;
@@ -30,6 +31,8 @@ export interface JsonObj {
   [k: string]: string|JsonObj;
 }
 export type Value = string|number|boolean;
+
+
 
 export interface ParsedColumn {
   family: string|null;
@@ -204,7 +207,8 @@ export class Mutation {
     const mutations: SetCellObj[] = [];
 
     Object.keys(data).forEach(familyName => {
-      const family = data[familyName];
+      // tslint:disable-next-line no-any
+      const family = (data as any)[familyName];
 
       Object.keys(family).forEach(cellName => {
         let cell = family[cellName];
