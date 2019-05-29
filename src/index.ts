@@ -49,6 +49,13 @@ import * as through from 'through2';
 import {AppProfile} from './app-profile';
 import {Cluster} from './cluster';
 import {Instance} from './instance';
+import {Family} from './family';
+import {google as btTypes} from '../proto/bigtable';
+import {Filter} from './filter';
+import {ServiceError} from 'grpc';
+import {Table} from './table';
+import {Row} from './row';
+import {PartialFailureError} from '@google-cloud/common/build/src/util';
 
 const retryRequest = require('retry-request');
 const streamEvents = require('stream-events');
@@ -56,6 +63,132 @@ const streamEvents = require('stream-events');
 const PKG = require('../../package.json');
 const v2 = require('./v2');
 const {grpc} = new gax.GrpcClient();
+
+
+
+type RequestCallback<T, R = void> =
+    R extends void ? NormalCallback<T>: FullCallback<T, R>;
+type NormalCallback<T> = (err: ServiceError|null, response?: T|null) => void;
+type FullCallback<T, R> =
+    (err: ServiceError|null, response?: T|null, apiResponse?: R|null) => void;
+
+type ApiResponse<T, R = void> =
+    R extends void ? NormalResponse<T>: FullResponse<T, R>;
+type NormalResponse<T> = [T];
+type FullResponse<T, R> = [T, R];
+interface OptionInterface {
+  gaxOptions?: gax.CallOptions;
+}
+
+
+export type IOperation = btTypes.longrunning.IOperation;
+export type DeleteTableCallback =
+    btTypes.bigtable.admin.v2.BigtableTableAdmin.DeleteTableCallback;
+export type DeleteTableRowsCallback =
+    btTypes.bigtable.admin.v2.BigtableTableAdmin.DropRowRangeCallback;
+export type EmptyResponse = ApiResponse<btTypes.protobuf.IEmpty>;
+export type ExistsCallback = RequestCallback<boolean>;
+export type ExistsResponse = ApiResponse<boolean>;
+export type DeleteRowCallback = RequestCallback<IOperation>;
+
+export interface CreateTableOptions extends OptionInterface {}
+export interface CreateFamilyTableOptions extends OptionInterface {
+  rule?: Rule;
+}
+
+export interface CreateReadStreamTableOptions extends OptionInterface {
+  decode?: boolean;
+  encoding?: boolean;
+  end?: string;
+  filter?: Filter;
+  keys?: string[];
+  limit?: number;
+  prefix?: string;
+  prefixes?: string[];
+  ranges?: PrefixRange[];
+  start?: string;
+}
+
+export interface PrefixRange {
+  start?: string|RangeOptions;
+  end?: string|RangeOptions;
+}
+
+export interface RangeOptions {
+  value: string;
+  inclusive: boolean;
+}
+
+
+export interface GetMetadataOptions extends OptionInterface {
+  view?: string;
+}
+
+export interface GetTableOptions extends OptionInterface {
+  autoCreate?: boolean;
+}
+
+export interface GetTableRowsOptions extends OptionInterface {}
+export interface MutateTableRowsOptions extends OptionInterface {
+  rawMutation?: boolean;
+}
+
+
+
+export interface Rule {
+  age?: {};
+  versions?: number;
+  intersect?: boolean;
+  union?: boolean;
+}
+
+
+export type CreateFamilyCallback =
+    RequestCallback<Family, btTypes.bigtable.v2.IFamily>;
+export type CreateFamilyResponse =
+    ApiResponse<Family, btTypes.bigtable.v2.IFamily>;
+export type GetFamiliesCallback = RequestCallback<Family[], IOperation>;
+export type GetFamiliesResponse = ApiResponse<Family[], IOperation>;
+export type CreateTableCallback =
+    RequestCallback<Table, btTypes.bigtable.admin.v2.ITable>;
+export type CreateTableResponse =
+    ApiResponse<Table, btTypes.bigtable.admin.v2.ITable>;
+export type GetTableCallback =
+    RequestCallback<Table, btTypes.bigtable.admin.v2.ITable>;
+export type GetTableResponse =
+    ApiResponse<Table, btTypes.bigtable.admin.v2.ITable>;
+export type GetReplicationStatesCallback =
+    RequestCallback<Map<any, any>, IOperation>;
+export type GetReplicationStatesResponse = ApiResponse<Family[], IOperation>;
+export type GetTableMetadataCallback =
+    RequestCallback<btTypes.bigtable.admin.v2.ITable>;
+export type GetTableMetadataTableResponse =
+    ApiResponse<btTypes.bigtable.admin.v2.ITable>;
+export type GetTableRowsCallback = RequestCallback<Row[]>;
+export type GetTableRowsResponse = ApiResponse<Row[]>;
+export type InsertTableRowsCallback = RequestCallback<PartialFailureError>;
+export type InsertTableRowsResponse = ApiResponse<PartialFailureError>;
+export type MutateTableRowsCallback = RequestCallback<PartialFailureError>;
+export type MutateTableRowsResponse = ApiResponse<PartialFailureError>;
+export type SampleRowKeysCallback =
+    btTypes.bigtable.v2.Bigtable.SampleRowKeysCallback;
+export type SampleRowKeysResponse = btTypes.bigtable.v2.SampleRowKeysResponse;
+export type TruncateTableCallback = RequestCallback<IOperation>;
+export type TruncateTableResponse = ApiResponse<IOperation>;
+export type WaitForReplicationCallback = RequestCallback<boolean>;
+export type WaitForReplicationResponse = ApiResponse<boolean>;
+export type GenerateConsistencyTokenCallback = RequestCallback<string>;
+export type GenerateConsistencyTokenResponse = ApiResponse<string>;
+export type CheckConsistencyCallback = RequestCallback<boolean>;
+export type CheckConsistencyResponse = ApiResponse<boolean>;
+
+export type Data = Value|Value[]|Entry;
+export type Value = string|number|boolean;
+export interface Entry {
+  key?: string;
+  method?: string;
+  data?: Data;
+}
 
 /**
  * @typedef {object} ClientConfig
@@ -660,7 +793,7 @@ export class Bigtable {
    * @param {object} config.reqOpts Request options.
    * @param {function} [callback] Callback function.
    */
-  request(config, callback) {
+  request(config, callback?) {
         const isStreamMode = !callback;
 
         let gaxStream;
