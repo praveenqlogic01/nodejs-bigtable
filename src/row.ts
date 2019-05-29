@@ -20,19 +20,51 @@ import arrify = require('arrify');
 const dotProp = require('dot-prop');
 import * as is from 'is';
 import {Filter} from './filter';
-import {Mutation} from './mutation';
+import {Mutation, IMutation} from './mutation';
+import {Bigtable, CreateRowOptions, CreateRowCallback, CreateRowResponse, CreateRulesCallback, CreateRulesResponse, MutateTableRowsOptions, DeleteRowCallback, EmptyResponse, DeleteRowResponse, DeleteRowCellsCallback, DeleteRowCellsResponse, ExistsCallback, ExistsResponse, Entry, SaveRowCallback, SaveRowResponse, IncrementRowCallback, IncrementRowResponse, GetRowOptions, GetRowMetadataCallback, GetRowMetadataResponse, GetRowCallback, GetTableRowsOptions, GetRowResponse, FilterRowConfigOptions, FilterRowCallback, FilterRowResponse} from '.';
+import {Table} from './table';
+import {google} from '../proto/bigtable';
+import {CallOptions} from 'google-gax';
+import {Chunk, Qualifier} from './chunktransformer';
+import {Family} from './family';
+
 
 /**
  * @private
  */
 export class RowError extends Error {
   code: number;
-  constructor(row) {
+  constructor(row: string) {
     super();
     this.name = 'RowError';
     this.message = `Unknown row: ${row}.`;
     this.code = 404;
   }
+}
+
+export interface RowRule extends google.bigtable.v2.IReadModifyWriteRule {
+  column?: string;
+  append?: boolean;
+  increment?: number|Long;
+}
+
+export interface RowData {
+  // tslint:disable-next-line no-any
+  data?: any;
+  key?: string|Buffer;
+}
+
+export interface UserOptions {
+  decode?: boolean;
+  encoding?: string;
+}
+
+export interface UnformattedFamily {
+  name: string;
+  columns: [{
+    qualifier: string;
+    cells: Chunk[];
+  }];
 }
 
 /**
@@ -50,11 +82,11 @@ export class RowError extends Error {
  * const row = table.row('gwashington');
  */
 export class Row {
-  bigtable;
-  table;
-  id;
-  data;
-  constructor(table, key) {
+  bigtable: Bigtable;
+  table: Table;
+  id: string;
+  data: google.bigtable.v2.IRow;
+  constructor(table: Table, key: string) {
     this.bigtable = table.bigtable;
     this.table = table;
     this.id = key;
@@ -91,23 +123,25 @@ export class Row {
    * //   }
    * // }
    */
-  static formatChunks_(chunks, options) {
+  static formatChunks_(chunks: Chunk[], options: UserOptions) {
+    // tslint:disable-next-line no-any
     const rows: any[] = [];
-    let familyName;
-    let qualifierName;
+    let familyName: string|null;
+    let qualifierName: string|null;
 
     options = options || {};
 
-    chunks.reduce((row, chunk) => {
-      let family;
-      let qualifier;
+    chunks.reduce((row: RowData, chunk: Chunk) => {
+      let family!: Family;
+      let qualifier!: Qualifier|Qualifier[];
 
-      row.data = row.data || {};
+      row.data = row.data! || {};
 
       if (chunk.rowKey) {
-        row.key = Mutation.convertFromBytes(chunk.rowKey, {
+        row.key = Mutation.convertFromBytes(chunk.rowKey as string, {
           userOptions: options,
-        });
+        }) as string |
+            Buffer;
       }
 
       if (chunk.familyName) {
@@ -119,18 +153,24 @@ export class Row {
       }
 
       if (chunk.qualifier) {
-        qualifierName = Mutation.convertFromBytes(chunk.qualifier.value, {
-          userOptions: options,
-        });
+        qualifierName =
+            Mutation.convertFromBytes(chunk.qualifier.value as string, {
+              userOptions: options,
+            }) as string;
       }
 
       if (family && qualifierName) {
-        qualifier = family[qualifierName] = family[qualifierName] || [];
+        // tslint:disable-next-line no-any
+        qualifier = (family as any)[qualifierName] =
+            // tslint:disable-next-line no-any
+            (family as any)[qualifierName] || [];
       }
 
       if (qualifier && chunk.value) {
-        qualifier.push({
-          value: Mutation.convertFromBytes(chunk.value, {userOptions: options}),
+        (qualifier as Qualifier[]).push({
+          value: Mutation.convertFromBytes(
+                     chunk.value, {userOptions: options}) as string |
+              Buffer,
           labels: chunk.labels,
           timestamp: chunk.timestampMicros,
           size: chunk.valueSize,
@@ -188,17 +228,22 @@ export class Row {
    * //   }
    * // }
    */
-  static formatFamilies_(families, options?) {
+  static formatFamilies_(
+      families: google.bigtable.v2.IFamily[], options?: UserOptions) {
     const data = {};
     options = options || {};
     families.forEach(family => {
-      const familyData = (data[family.name] = {});
-      family.columns.forEach(column => {
+      // tslint:disable-next-line no-any
+      const familyData = ((data as any)[family.name!] = {});
+      (family as {} as UnformattedFamily).columns.forEach(column => {
         const qualifier = Mutation.convertFromBytes(column.qualifier);
-        familyData[qualifier as any] = column.cells.map(cell => {
+        // tslint:disable-next-line no-any
+        (familyData as any)[qualifier as any] = column.cells.map(cell => {
           let value = cell.value;
-          if (options.decode !== false) {
-            value = Mutation.convertFromBytes(value, {isPossibleNumber: true});
+          if (options!.decode !== false) {
+            value = Mutation.convertFromBytes(
+                        value!, {isPossibleNumber: true}) as string |
+                Buffer;
           }
           return {
             value,
@@ -228,28 +273,35 @@ export class Row {
    * @example <caption>include:samples/document-snippets/row.js</caption>
    * region_tag:bigtable_create_row
    */
-  create(options, callback) {
-    if (is.function(options))
-      {
-        callback = options;
-        options = {};
-      }
+  create(options?: CreateRowOptions): Promise<CreateRowResponse>;
+  create(callback: CreateRowCallback): void;
+  create(options: CreateRowOptions, callback: CreateRowCallback): void;
+  create(
+      optionsOrCallback?: CreateRowOptions|CreateRowCallback,
+      callback?: CreateRowCallback): void|Promise<CreateRowResponse> {
+    const options =
+        typeof optionsOrCallback === 'object' ? optionsOrCallback : {};
+    callback =
+        typeof optionsOrCallback === 'function' ? optionsOrCallback : callback;
 
-      const entry = {
-        key: this.id,
-        data: options.entry,
-        method: Mutation.methods.INSERT,
-      };
-      this.data = {};
+    const entry = {
+      key: this.id,
+      data: options.entry,
+      method: Mutation.methods.INSERT,
+    };
+    this.data = {};
 
-      this.table.mutate(entry, options.gaxOptions, (err, apiResponse) => {
-        if (err) {
-          callback(err, null, apiResponse);
-          return;
-        }
+    this.table.mutate(
+        entry, options.gaxOptions as MutateTableRowsOptions,
+        // tslint:disable-next-line no-any
+        (err, apiResponse: any) => {
+          if (err) {
+            callback!(err, null, apiResponse);
+            return;
+          }
 
-        callback(null, this, apiResponse);
-      });
+          callback!(null, this, apiResponse);
+        });
   }
 
   /**
@@ -270,49 +322,59 @@ export class Row {
    * @example <caption>include:samples/document-snippets/row.js</caption>
    * region_tag:bigtable_create_rules
    */
-  createRules(rules, gaxOptions, callback) {
-      if (is.fn(gaxOptions)) {
-        callback = gaxOptions;
-        gaxOptions = {};
+  createRules(rules: RowRule|RowRule[], gaxOptions?: CallOptions):
+      Promise<CreateRulesResponse>;
+  createRules(rules: RowRule|RowRule[], callback: CreateRulesCallback): void;
+  createRules(
+      rules: RowRule|RowRule[], gaxOptions: CallOptions,
+      callback: CreateRulesCallback): void;
+  createRules(
+      rules: RowRule|RowRule[],
+      gaxOptionsOrcallback?: CallOptions|CreateRulesCallback,
+      callback?: CreateRulesCallback): void|Promise<CreateRulesResponse> {
+    const gaxOptions =
+        typeof gaxOptionsOrcallback === 'object' ? gaxOptionsOrcallback : {};
+    callback = typeof gaxOptionsOrcallback === 'function' ?
+        gaxOptionsOrcallback :
+        callback;
+
+    if (!rules || (rules as RowRule[]).length === 0) {
+      throw new Error('At least one rule must be provided.');
+    }
+
+    rules = arrify(rules).map(rule => {
+      const column = Mutation.parseColumnName(rule.column!);
+      const ruleData = {
+        familyName: column.family,
+        columnQualifier: Mutation.convertToBytes(column.qualifier!),
+      } as google.bigtable.v2.IReadModifyWriteRule;
+
+      if (rule.append) {
+        ruleData.appendValue =
+            Mutation.convertToBytes(rule.append) as Uint8Array;
+      }
+      if (rule.increment) {
+        ruleData.incrementAmount = rule.increment;
       }
 
-      if (!rules || rules.length === 0) {
-        throw new Error('At least one rule must be provided.');
-      }
+      return ruleData;
+    });
 
-      rules = arrify(rules).map(rule => {
-        const column = Mutation.parseColumnName(rule.column);
-        const ruleData: any = {
-          familyName: column.family,
-          columnQualifier: Mutation.convertToBytes(column.qualifier!),
-        };
-
-        if (rule.append) {
-          ruleData.appendValue = Mutation.convertToBytes(rule.append);
-        }
-
-        if (rule.increment) {
-          ruleData.incrementAmount = rule.increment;
-        }
-
-        return ruleData;
-      });
-
-      const reqOpts = {
-        tableName: this.table.name,
-        appProfileId: this.bigtable.appProfileId,
-        rowKey: Mutation.convertToBytes(this.id),
-        rules,
-      };
-      this.data = {};
-      this.bigtable.request(
-          {
-            client: 'BigtableClient',
-            method: 'readModifyWriteRow',
-            reqOpts,
-            gaxOpts: gaxOptions,
-          },
-          callback);
+    const reqOpts = {
+      tableName: this.table.name,
+      appProfileId: this.bigtable.appProfileId,
+      rowKey: Mutation.convertToBytes(this.id),
+      rules,
+    };
+    this.data = {};
+    this.bigtable.request(
+        {
+          client: 'BigtableClient',
+          method: 'readModifyWriteRow',
+          reqOpts,
+          gaxOpts: gaxOptions,
+        },
+        callback);
   }
 
   /**
@@ -328,18 +390,25 @@ export class Row {
    * @example <caption>include:samples/document-snippets/row.js</caption>
    * region_tag:bigtable_delete_all_cells
    */
-  delete(gaxOptions, callback) {
-      if (is.fn(gaxOptions)) {
-        callback = gaxOptions;
-        gaxOptions = {};
-      }
+  delete(gaxOptions?: CallOptions): Promise<DeleteRowResponse>;
+  delete(callback: DeleteRowCallback): void;
+  delete(gaxOptions: CallOptions, callback: DeleteRowCallback): void;
+  delete(
+      gaxOptionsOrcallback?: CallOptions|DeleteRowCallback,
+      callback?: DeleteRowCallback): void|Promise<DeleteRowResponse> {
+    const gaxOptions =
+        typeof gaxOptionsOrcallback === 'object' ? gaxOptionsOrcallback : {};
+    callback = typeof gaxOptionsOrcallback === 'function' ?
+        gaxOptionsOrcallback :
+        callback;
 
-      const mutation = {
-        key: this.id,
-        method: Mutation.methods.DELETE,
-      };
-      this.data = {};
-      this.table.mutate(mutation, gaxOptions, callback);
+    const mutation = {
+      key: this.id,
+      method: Mutation.methods.DELETE,
+    };
+    this.data = {};
+    this.table.mutate(
+        mutation, gaxOptions as MutateTableRowsOptions, callback!);
   }
 
   /**
@@ -356,19 +425,30 @@ export class Row {
    * @example <caption>include:samples/document-snippets/row.js</caption>
    * region_tag:bigtable_delete_particular_cells
    */
-  deleteCells(columns, gaxOptions, callback) {
-      if (is.fn(gaxOptions)) {
-        callback = gaxOptions;
-        gaxOptions = {};
-      }
+  deleteCells(columns: string[], gaxOptions?: CallOptions):
+      Promise<DeleteRowCellsResponse>;
+  deleteCells(columns: string[], callback: DeleteRowCellsCallback): void;
+  deleteCells(
+      columns: string[], gaxOptions: CallOptions,
+      callback: DeleteRowCellsCallback): void;
+  deleteCells(
+      columns: string[],
+      gaxOptionsOrcallback?: CallOptions|DeleteRowCellsCallback,
+      callback?: DeleteRowCellsCallback): void|Promise<DeleteRowCellsResponse> {
+    const gaxOptions =
+        typeof gaxOptionsOrcallback === 'object' ? gaxOptionsOrcallback : {};
+    callback = typeof gaxOptionsOrcallback === 'function' ?
+        gaxOptionsOrcallback :
+        callback;
 
-      const mutation = {
-        key: this.id,
-        data: arrify(columns),
-        method: Mutation.methods.DELETE,
-      };
-      this.data = {};
-      this.table.mutate(mutation, gaxOptions, callback);
+    const mutation = {
+      key: this.id,
+      data: arrify(columns),
+      method: Mutation.methods.DELETE,
+    };
+    this.data = {};
+    this.table.mutate(
+        mutation, gaxOptions as MutateTableRowsOptions, callback!);
   }
 
   /**
@@ -384,25 +464,31 @@ export class Row {
    * @example <caption>include:samples/document-snippets/row.js</caption>
    * region_tag:bigtable_row_exists
    */
-  exists(gaxOptions, callback) {
-      if (is.fn(gaxOptions)) {
-        callback = gaxOptions;
-        gaxOptions = {};
-      }
+  exists(gaxOptions?: CallOptions): Promise<ExistsResponse>;
+  exists(callback: ExistsCallback): void;
+  exists(gaxOptions: CallOptions, callback: ExistsCallback): void;
+  exists(
+      gaxOptionsOrcallback?: CallOptions|ExistsCallback,
+      callback?: ExistsCallback): void|Promise<ExistsResponse> {
+    const gaxOptions =
+        typeof gaxOptionsOrcallback === 'object' ? gaxOptionsOrcallback : {};
+    callback = typeof gaxOptionsOrcallback === 'function' ?
+        gaxOptionsOrcallback :
+        callback;
 
-      this.getMetadata(gaxOptions, err => {
-        if (err) {
-          if (err instanceof RowError) {
-            callback(null, false);
-            return;
-          }
-
-          callback(err);
+    this.getMetadata(gaxOptions as GetRowOptions, err => {
+      if (err) {
+        if (err instanceof RowError) {
+          callback!(null, false);
           return;
         }
 
-        callback(null, true);
-      });
+        callback!(err);
+        return;
+      }
+
+      callback!(null, true);
+    });
   }
 
   /**
@@ -426,36 +512,45 @@ export class Row {
    * @example <caption>include:samples/document-snippets/row.js</caption>
    * region_tag:bigtable_row_filter
    */
-  filter(filter, config, callback) {
-      const reqOpts = {
-        tableName: this.table.name,
-        appProfileId: this.bigtable.appProfileId,
-        rowKey: Mutation.convertToBytes(this.id),
-        predicateFilter: Filter.parse(filter),
-        trueMutations: createFlatMutationsList(config.onMatch),
-        falseMutations: createFlatMutationsList(config.onNoMatch),
-      };
-      this.data = {};
-      this.bigtable.request(
-          {
-            client: 'BigtableClient',
-            method: 'checkAndMutateRow',
-            reqOpts,
-            gaxOpts: config.gaxOptions,
-          },
-          (err, apiResponse) => {
-            if (err) {
-              callback(err, null, apiResponse);
-              return;
-            }
+  filter(filter: Filter, config: FilterRowConfigOptions):
+      Promise<FilterRowResponse>;
+  filter(
+      filter: Filter, config: FilterRowConfigOptions,
+      callback: FilterRowCallback): void;
+  filter(
+      filter: Filter, config: FilterRowConfigOptions,
+      callback?: FilterRowCallback): void|Promise<FilterRowResponse> {
+    const reqOpts = {
+      tableName: this.table.name,
+      appProfileId: this.bigtable.appProfileId,
+      rowKey: Mutation.convertToBytes(this.id),
+      predicateFilter: Filter.parse(filter),
+      trueMutations: createFlatMutationsList(config.onMatch!),
+      falseMutations: createFlatMutationsList(config.onNoMatch!),
+    };
+    this.data = {};
+    this.bigtable.request(
+        {
+          client: 'BigtableClient',
+          method: 'checkAndMutateRow',
+          reqOpts,
+          gaxOpts: config.gaxOptions,
+        },
+        (err: Error,
+         apiResponse: google.bigtable.v2.CheckAndMutateRowResponse) => {
+          if (err) {
+            callback!(err, null, apiResponse);
+            return;
+          }
 
-            callback(null, apiResponse.predicateMatched, apiResponse);
-          });
+          callback!(null, apiResponse.predicateMatched, apiResponse);
+        });
 
-      function createFlatMutationsList(entries) {
-        entries = arrify(entries).map(entry => Mutation.parse(entry).mutations);
-        return entries.reduce((a, b) => a.concat(b), []);
-      }
+    function createFlatMutationsList(entries: IMutation[]) {
+      entries = arrify(entries).map(
+                    entry => Mutation.parse(entry as Mutation).mutations) as [];
+      return entries.reduce((a, b) => a.concat(b as []), []);
+    }
   }
 
   /**
@@ -475,75 +570,83 @@ export class Row {
    * @example <caption>include:samples/document-snippets/row.js</caption>
    * region_tag:bigtable_get_row
    */
-  get(columns, options, callback?) {
-      if (!is.array(columns)) {
-        callback = options;
-        options = columns;
-        columns = [];
+  get(columns: string[], options: GetRowOptions,
+      callback: GetRowCallback): void;
+  get(options?: GetRowOptions): Promise<GetRowResponse>;
+  get(columns: string[], options?: GetRowOptions): Promise<GetRowResponse>;
+  get(callback: GetRowCallback): void;
+  get(options: GetRowOptions, callback: GetRowCallback): void;
+  get(columns: string[], callback: GetRowCallback): void;
+  get(columnsOrOpts?: string[]|GetRowOptions|GetRowCallback,
+      optionsOrCallback?: GetRowOptions|GetRowCallback,
+      callback?: GetRowCallback): void|Promise<GetRowResponse> {
+    let columns = (is.array(columnsOrOpts) ? columnsOrOpts : []) as string[];
+    const options =
+        (!is.array(columnsOrOpts) ?
+             columnsOrOpts :
+             typeof optionsOrCallback === 'object' ? optionsOrCallback : {}) as
+        GetRowOptions;
+    callback = typeof columnsOrOpts === 'function' ?
+        columnsOrOpts :
+        typeof optionsOrCallback === 'function' ? optionsOrCallback : callback;
+
+    let filter!: Array<{}>;
+    columns = arrify(columns);
+
+    // if there is column filter
+    if (columns.length) {
+      const filters = columns.map(Mutation.parseColumnName).map(column => {
+        // tslint:disable-next-line no-any
+        const colmFilters: any = [{family: column.family}];
+        if (column.qualifier) {
+          colmFilters.push({column: column.qualifier});
+        }
+        return colmFilters;
+      });
+
+      // if there is more then one filter, make it type inteleave filter
+      if (filters.length > 1) {
+        filter = [
+          {
+            interleave: filters,
+          },
+        ];
+      } else {
+        filter = filters[0];
+      }
+    }
+
+    // if there is also a second option.filter append to filter array
+    if (options.filter) {
+      filter = arrify(filter).concat(options.filter);
+    }
+
+    const getRowsOptions = Object.assign({}, options, {
+      keys: [this.id],
+      filter,
+    });
+
+    this.table.getRows(getRowsOptions as GetTableRowsOptions, (err, rows) => {
+      if (err) {
+        callback!(err);
+        return;
       }
 
-    if (is.function(options))
-        {
-          callback = options;
-          options = {};
-        }
+      const row = rows![0];
 
-        let filter;
-        columns = arrify(columns);
+      if (!row) {
+        err = new RowError(this.id);
+        callback!(err);
+        return;
+      }
 
-        // if there is column filter
-        if (columns.length) {
-          const filters = columns.map(Mutation.parseColumnName).map(column => {
-            const colmFilters: any = [{family: column.family}];
-            if (column.qualifier) {
-              colmFilters.push({column: column.qualifier});
-            }
-            return colmFilters;
-          });
+      this.data = row.data;
 
-          // if there is more then one filter, make it type inteleave filter
-          if (filters.length > 1) {
-            filter = [
-              {
-                interleave: filters,
-              },
-            ];
-          } else {
-            filter = filters[0];
-          }
-        }
-
-        // if there is also a second option.filter append to filter array
-        if (options.filter) {
-          filter = arrify(filter).concat(options.filter);
-        }
-
-        const getRowsOptions = Object.assign({}, options, {
-          keys: [this.id],
-          filter,
-        });
-
-        this.table.getRows(getRowsOptions, (err, rows) => {
-          if (err) {
-            callback(err);
-            return;
-          }
-
-          const row = rows[0];
-
-          if (!row) {
-            err = new RowError(this.id);
-            callback(err);
-            return;
-          }
-
-          this.data = row.data;
-
-          // If the user specifies column names, we'll return back the row data
-          // we received. Otherwise, we'll return the row "this" in a typical
-          // GrpcServiceObject#get fashion.
-          callback(null, columns.length ? row.data : this);
-        });
+      // If the user specifies column names, we'll return back the row data
+      // we received. Otherwise, we'll return the row "this" in a typical
+      // GrpcServiceObject#get fashion.
+      callback!(null, (columns.length ? row.data : this) as Row);
+    });
   }
 
   /**
@@ -562,21 +665,25 @@ export class Row {
    * @example <caption>include:samples/document-snippets/row.js</caption>
    * region_tag:bigtable_get_row_meta
    */
-  getMetadata(options, callback) {
-    if (is.function(options))
-          {
-            callback = options;
-            options = {};
-          }
+  getMetadata(options?: GetRowOptions): Promise<GetRowMetadataResponse>;
+  getMetadata(callback: GetRowMetadataCallback): void;
+  getMetadata(options: GetRowOptions, callback: GetRowMetadataCallback): void;
+  getMetadata(
+      optionsOrCallback?: GetRowOptions|GetRowMetadataCallback,
+      callback?: GetRowMetadataCallback): void|Promise<GetRowMetadataResponse> {
+    const options =
+        typeof optionsOrCallback === 'object' ? optionsOrCallback : {};
+    callback =
+        typeof optionsOrCallback === 'function' ? optionsOrCallback : callback;
+    // tslint:disable-next-line no-any
+    this.get(options, (err, row: any) => {
+      if (err) {
+        callback!(err);
+        return;
+      }
 
-          this.get(options, (err, row) => {
-            if (err) {
-              callback(err);
-              return;
-            }
-
-            callback(null, row.metadata);
-          });
+      callback!(null, row.metadata);
+    });
   }
 
   /**
@@ -596,46 +703,49 @@ export class Row {
    * @example <caption>include:samples/document-snippets/row.js</caption>
    * region_tag:bigtable_row_increment
    */
-  increment(column, value, gaxOptions, callback) {
-          // increment('column', callback)
-    if (is.function(value))
-            {
-              callback = value;
-              value = 1;
-              gaxOptions = {};
-            }
+  increment(column: string, gaxOptions?: CallOptions):
+      Promise<IncrementRowResponse>;
+  increment(column: string, value: number, gaxOptions?: CallOptions):
+      Promise<IncrementRowResponse>;
+  increment(
+      column: string, gaxOptions: CallOptions,
+      callback: IncrementRowCallback): void;
+  increment(column: string, callback: IncrementRowCallback): void;
+  increment(column: string, value: number, callback: IncrementRowCallback):
+      void;
+  increment(
+      column: string, value: number, gaxOptions: CallOptions,
+      callback: IncrementRowCallback): void;
+  increment(
+      column: string, valueOrOptsOrCb?: number|CallOptions|IncrementRowCallback,
+      gaxOptionsOrcallback?: CallOptions|IncrementRowCallback,
+      callback?: IncrementRowCallback): void|Promise<IncrementRowResponse> {
+    const value = typeof valueOrOptsOrCb === 'number' ? valueOrOptsOrCb : 1;
+    const gaxOptions = typeof valueOrOptsOrCb === 'object' ?
+        valueOrOptsOrCb :
+        typeof gaxOptionsOrcallback === 'object' ? gaxOptionsOrcallback : {};
+    callback = typeof valueOrOptsOrCb === 'function' ?
+        valueOrOptsOrCb :
+        typeof gaxOptionsOrcallback === 'function' ? gaxOptionsOrcallback :
+                                                     callback;
 
-            // increment('column', value, callback)
-    if (is.function(gaxOptions))
-              {
-                callback = gaxOptions;
-                gaxOptions = {};
-              }
 
-              // increment('column', { gaxOptions }, callback)
-              if (is.object(value)) {
-                callback = gaxOptions;
-                gaxOptions = value;
-                value = 1;
-              }
+    const reqOpts = {
+      column,
+      increment: value,
+    } as RowRule;
 
-              const reqOpts = {
-                column,
-                increment: value,
-              };
+    this.createRules(reqOpts, gaxOptions, (err, resp) => {
+      if (err) {
+        callback!(err, null, resp);
+        return;
+      }
 
-              this.createRules(reqOpts, gaxOptions, (err, resp) => {
-                if (err) {
-                  callback(err, null, resp);
-                  return;
-                }
+      const data = Row.formatFamilies_(resp!.row!.families!);
+      const value = dotProp.get(data, column.replace(':', '.'))[0].value;
 
-                const data = Row.formatFamilies_(resp.row.families);
-                const value =
-                    dotProp.get(data, column.replace(':', '.'))[0].value;
-
-                callback(null, value, resp);
-              });
+      callback!(null, value, resp);
+    });
   }
 
   /**
@@ -653,19 +763,26 @@ export class Row {
    * @example <caption>include:samples/document-snippets/row.js</caption>
    * region_tag:bigtable_row_save
    */
-  save(entry, gaxOptions, callback) {
-              if (is.fn(gaxOptions)) {
-                callback = gaxOptions;
-                gaxOptions = {};
-              }
+  save(entry: Entry, gaxOptions?: CallOptions): Promise<SaveRowResponse>;
+  save(entry: Entry, callback: SaveRowCallback): void;
+  save(entry: Entry, gaxOptions: CallOptions, callback: SaveRowCallback): void;
+  save(
+      entry: Entry, gaxOptionsOrcallback?: CallOptions|SaveRowCallback,
+      callback?: SaveRowCallback): void|Promise<SaveRowResponse> {
+    const gaxOptions =
+        typeof gaxOptionsOrcallback === 'object' ? gaxOptionsOrcallback : {};
+    callback = typeof gaxOptionsOrcallback === 'function' ?
+        gaxOptionsOrcallback :
+        callback;
 
-              const mutation = {
-                key: this.id,
-                data: entry,
-                method: Mutation.methods.INSERT,
-              };
-              this.data = {};
-              this.table.mutate(mutation, gaxOptions, callback);
+    const mutation = {
+      key: this.id,
+      data: entry,
+      method: Mutation.methods.INSERT,
+    };
+    this.data = {};
+    this.table.mutate(
+        mutation, gaxOptions as MutateTableRowsOptions, callback!);
   }
 }
 

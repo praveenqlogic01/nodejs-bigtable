@@ -50,12 +50,114 @@ import {AppProfile} from './app-profile';
 import {Cluster} from './cluster';
 import {Instance} from './instance';
 
+
+import {google as btTypes} from '../proto/bigtable';
+
+import {ServiceError} from 'grpc';
+
+import {Row} from './row';
+import {PartialFailureError} from '@google-cloud/common/build/src/util';
+import {IMutation} from './mutation';
+
+
+
 const retryRequest = require('retry-request');
 const streamEvents = require('stream-events');
 
 const PKG = require('../../package.json');
 const v2 = require('./v2');
 const {grpc} = new gax.GrpcClient();
+
+
+
+type RequestCallback<T, R = void> =
+    R extends void ? NormalCallback<T>: FullCallback<T, R>;
+type NormalCallback<T> = (err: ServiceError|null, response?: T|null) => void;
+type FullCallback<T, R> =
+    (err: ServiceError|null, response?: T|null, apiResponse?: R|null) => void;
+
+type ApiResponse<T, R = void> =
+    R extends void ? NormalResponse<T>: FullResponse<T, R>;
+type NormalResponse<T> = [T];
+type FullResponse<T, R> = [T, R];
+interface OptionInterface {
+  gaxOptions?: gax.CallOptions;
+}
+
+
+export type IOperation = btTypes.longrunning.IOperation;
+
+export interface CreateRowOptions extends OptionInterface {
+  entry?: Entry;
+}
+
+
+
+export interface Rule {
+  age?: {};
+  versions?: number;
+  intersect?: boolean;
+  union?: boolean;
+}
+
+export interface GetRowOptions extends OptionInterface {
+  decode?: boolean;
+  filter?: Array<{}>;
+}
+
+export type EmptyResponse = ApiResponse<btTypes.protobuf.IEmpty>;
+
+export interface FilterRowConfigOptions {
+  onMatch: IMutation[]|null;
+  onNoMatch?: IMutation[];
+  gaxOptions?: gax.CallOptions;
+}
+
+
+export interface GetTableRowsOptions extends OptionInterface {}
+export type ExistsCallback = RequestCallback<boolean>;
+export type ExistsResponse = ApiResponse<boolean>;
+
+export interface MutateTableRowsOptions extends OptionInterface {
+  rawMutation?: boolean;
+}
+export type CreateRowCallback =
+    RequestCallback<Row, btTypes.bigtable.v2.IReadModifyWriteRowResponse>;
+export type CreateRowResponse =
+    ApiResponse<Row, btTypes.bigtable.v2.IReadModifyWriteRowResponse>;
+export type CreateRulesCallback =
+    RequestCallback<btTypes.bigtable.v2.IReadModifyWriteRowResponse>;
+export type CreateRulesResponse =
+    ApiResponse<btTypes.bigtable.v2.IReadModifyWriteRowResponse>;
+export type DeleteRowCallback = RequestCallback<PartialFailureError>;
+export type DeleteRowResponse = ApiResponse<PartialFailureError>;
+export type DeleteRowCellsCallback = RequestCallback<PartialFailureError>;
+export type DeleteRowCellsResponse = ApiResponse<PartialFailureError>;
+export type SaveRowCallback = RequestCallback<PartialFailureError>;
+export type SaveRowResponse = ApiResponse<PartialFailureError>;
+export type IncrementRowCallback =
+    RequestCallback<number, btTypes.bigtable.v2.IReadModifyWriteRowResponse>;
+export type IncrementRowResponse =
+    ApiResponse<number, btTypes.bigtable.v2.IReadModifyWriteRowResponse>;
+export type GetRowMetadataCallback = RequestCallback<btTypes.bigtable.v2.IRow>;
+export type GetRowMetadataResponse = ApiResponse<btTypes.bigtable.v2.IRow>;
+export type GetRowCallback = RequestCallback<Row>;
+export type GetRowResponse = ApiResponse<Row>;
+export type FilterRowCallback =
+    RequestCallback<boolean, btTypes.bigtable.v2.CheckAndMutateRowResponse>;
+export type FilterRowResponse =
+    ApiResponse<boolean, btTypes.bigtable.v2.CheckAndMutateRowResponse>;
+
+export type Data = Value|Value[]|Entry;
+export type Value = string|number|boolean;
+
+
+export interface Entry {
+  key?: string;
+  method?: string;
+  data?: Data;
+}
+
 
 /**
  * @typedef {object} ClientConfig
