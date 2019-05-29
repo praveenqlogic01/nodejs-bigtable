@@ -165,12 +165,12 @@ Please use the format 'my-instance' or '${
    * @example <caption>include:samples/document-snippets/instance.js</caption>
    * region_tag:bigtable_create_app_profile
    */
-  createAppProfile(id: string, options: AppProfileOptions):
-      Promise<CreateAppProfileResponse>;
-  createAppProfile(id: string, callback: CreateAppProfileCallback): void;
   createAppProfile(
       id: string, options: AppProfileOptions,
       callback: CreateAppProfileCallback): void;
+  createAppProfile(id: string, options: AppProfileOptions):
+      Promise<CreateAppProfileResponse>;
+  createAppProfile(id: string, callback: CreateAppProfileCallback): void;
   createAppProfile(
       id: string, optionsOrCallback: AppProfileOptions|CreateAppProfileCallback,
       callback?: CreateAppProfileCallback):
@@ -241,12 +241,12 @@ Please use the format 'my-instance' or '${
    * @example <caption>include:samples/document-snippets/instance.js</caption>
    * region_tag:bigtable_create_cluster
    */
-  createCluster(id: string, options: CreateClusterOptions):
-      Promise<CreateClusterResponse>;
   createCluster(id: string, callback: CreateClusterCallback): void;
   createCluster(
       id: string, options: CreateClusterOptions,
-      callback?: CreateClusterCallback): void;
+      callback: CreateClusterCallback): void;
+  createCluster(id: string, options: CreateClusterOptions):
+      Promise<CreateClusterResponse>;
   createCluster(
       id: string, optionsOrCallback: CreateClusterOptions|CreateClusterCallback,
       callback?: CreateClusterCallback): void|Promise<CreateClusterResponse> {

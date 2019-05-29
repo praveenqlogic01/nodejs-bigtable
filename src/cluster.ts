@@ -44,7 +44,7 @@ export type BooleanResponse = [boolean];
 export type GetClusterResponse = [ICluster, IOperation];
 export type MetadataResponse = [Metadata, IOperation];
 
-export type CreateClusterCallback = GenericCallback<IOperation>;
+export type CreateClusterCallback = GenericClusterCallback<ICluster>;
 export type DeleteClusterCallback = GenericCallback<IOperation>;
 export type ExistsClusterCallback = GenericCallback<boolean>;
 export type GetClusterCallback = GenericClusterCallback<ICluster>;

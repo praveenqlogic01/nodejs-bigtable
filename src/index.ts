@@ -80,7 +80,7 @@ export interface AppProfileOptions extends OptionInterface {
   routing: Cluster|'any';
   allowTransactionalWrites?: boolean;
   description?: string;
-  ignoreWarnings?: string;
+  ignoreWarnings?: string|boolean;
 }
 
 export interface CreateTableOptions extends OptionInterface {
