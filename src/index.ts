@@ -57,6 +57,34 @@ import {Table} from './table';
 import {Row} from './row';
 import {PartialFailureError} from '@google-cloud/common/build/src/util';
 
+
+
+interface OptionInterface {
+  gaxOptions?: gax.CallOptions;
+}
+export interface CreateTableOptions extends OptionInterface {}
+
+export interface RequestConfig {
+  gaxOpts: gax.CallOptions;
+  method: string;
+  reqOpts: {
+    name: string;
+    modifications?: any;
+    tableName?: string;
+    appProfileId?: string;
+    rows?: btTypes.bigtable.v2.IRowSet;
+    filter?: {};
+    rowsLimit?: number;
+    rowKeyPrefix?: string;
+    consistencyToken?: string;
+    view?: number;
+    entries?: Array<{}>;
+    deleteAllDataFromTable?: boolean;
+  };
+  client: string;
+  retryOpts?: {};
+}
+
 const retryRequest = require('retry-request');
 const streamEvents = require('stream-events');
 
@@ -112,6 +140,7 @@ export interface CreateReadStreamTableOptions extends OptionInterface {
 export interface PrefixRange {
   start?: string|RangeOptions;
   end?: string|RangeOptions;
+  startInclusive?: boolean;
 }
 
 export interface RangeOptions {
