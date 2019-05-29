@@ -15,8 +15,8 @@
  */
 
 import {promisifyAll} from '@google-cloud/promisify';
-import {ServiceError} from '@grpc/grpc-js';
 import {CallOptions, Operation as GaxOperation} from 'google-gax';
+import {ServiceError} from 'grpc';
 
 import {google as btTypes} from '../proto/bigtable';
 
