@@ -14,15 +14,34 @@
  * limitations under the License.
  */
 
+import {Metadata} from '@google-cloud/common';
 import {promisifyAll} from '@google-cloud/promisify';
-import * as is from 'is';
+import {CallOptions} from 'google-gax';
+import {ServiceError} from 'grpc';
+
+
+import {google} from '../proto/bigtable';
+
+import {Arguments, Bigtable, CreateFamilyCallback, CreateFamilyResponse, CreateFamilyTableOptions, DeleteFamilyCallback, EmptyResponse, ExistsCallback, ExistsResponse, GetFamilyCallback, GetFamilyMetadataCallback, GetFamilyMetadataResponse, GetFamilyOptions, GetFamilyResponse, SetFamilyMetadataCallback, SetFamilyMetadataResponse} from '.';
+import {Table} from './table';
+
+
+export type IDuration = google.protobuf.IDuration;
+export type IGcRule = google.bigtable.admin.v2.IGcRule;
+export interface RuleObj {
+  age?: IDuration;
+  versions?: number;
+  intersect?: boolean;
+  rule?: RuleObj;
+  union?: boolean;
+}
 
 /**
  * @private
  */
 export class FamilyError extends Error {
-  code;
-  constructor(name) {
+  code: number;
+  constructor(name: string) {
     super();
     this.name = 'FamilyError';
     this.message = `Column family not found: ${name}.`;
@@ -45,16 +64,16 @@ export class FamilyError extends Error {
  * const family = table.family('follows');
  */
 export class Family {
-  bigtable;
-  table;
-  name;
-  id;
-  metadata;
-  constructor(table, id) {
+  bigtable: Bigtable;
+  table: Table;
+  name: string;
+  id: string;
+  metadata!: google.bigtable.v2.IFamily|google.bigtable.admin.v2.IColumnFamily;
+  constructor(table: Table, id: string) {
     this.bigtable = table.bigtable;
     this.table = table;
 
-    let name;
+    let name: string;
     if (id.includes('/')) {
       if (id.startsWith(`${table.name}/columnFamilies/`)) {
         name = id;
@@ -67,7 +86,7 @@ Please use the format 'follows' or '${table.name}/columnFamilies/my-family'.`);
     }
 
     this.name = name;
-    this.id = name.split('/').pop();
+    this.id = name.split('/').pop()!;
   }
 
   /**
@@ -102,7 +121,8 @@ Please use the format 'follows' or '${table.name}/columnFamilies/my-family'.`);
    * //   }
    * // }
    */
-  static formatRule_(ruleObj) {
+  static formatRule_(ruleObj: RuleObj): IGcRule {
+    // tslint:disable-next-line no-any
     const rules: any[] = [];
 
     if (ruleObj.age) {
@@ -133,7 +153,7 @@ Please use the format 'follows' or '${table.name}/columnFamilies/my-family'.`);
       throw new Error('No garbage collection rules were specified.');
     }
 
-    const rule = {};
+    const rule: IGcRule = {};
     const ruleType = ruleObj.union ? 'union' : 'intersection';
 
     rule[ruleType] = {
@@ -156,11 +176,17 @@ Please use the format 'follows' or '${table.name}/columnFamilies/my-family'.`);
    * @example <caption>include:samples/document-snippets/family.js</caption>
    * region_tag:bigtable_create_family
    */
-  create(options, callback) {
-    if (is.fn(options)) {
-      callback = options;
-      options = {};
-    }
+  create(options?: CreateFamilyTableOptions): Promise<CreateFamilyResponse>;
+  create(callback: CreateFamilyCallback): void;
+  create(options: CreateFamilyTableOptions, callback: CreateFamilyCallback):
+      void;
+  create(
+      optionsOrCallback?: CreateFamilyTableOptions|CreateFamilyCallback,
+      callback?: CreateFamilyCallback): void|Promise<CreateFamilyResponse> {
+    const options =
+        typeof optionsOrCallback === 'object' ? optionsOrCallback : {};
+    callback =
+        typeof optionsOrCallback === 'function' ? optionsOrCallback : callback;
 
     this.table.createFamily(this.id, options, callback);
   }
@@ -178,11 +204,17 @@ Please use the format 'follows' or '${table.name}/columnFamilies/my-family'.`);
    * @example <caption>include:samples/document-snippets/family.js</caption>
    * region_tag:bigtable_del_family
    */
-  delete(gaxOptions, callback) {
-    if (is.fn(gaxOptions)) {
-      callback = gaxOptions;
-      gaxOptions = {};
-    }
+  delete(gaxOptions?: CallOptions): Promise<EmptyResponse>;
+  delete(callback?: DeleteFamilyCallback): void;
+  delete(gaxOptions: CallOptions, callback?: DeleteFamilyCallback): void;
+  delete(
+      gaxOptionsOrcallback?: CallOptions|DeleteFamilyCallback,
+      callback?: DeleteFamilyCallback): void|Promise<EmptyResponse> {
+    const gaxOptions =
+        typeof gaxOptionsOrcallback === 'object' ? gaxOptionsOrcallback : {};
+    callback = typeof gaxOptionsOrcallback === 'function' ?
+        gaxOptionsOrcallback :
+        callback;
 
     this.bigtable.request(
         {
@@ -215,24 +247,30 @@ Please use the format 'follows' or '${table.name}/columnFamilies/my-family'.`);
    * @example <caption>include:samples/document-snippets/family.js</caption>
    * region_tag:bigtable_exists_family
    */
-  exists(gaxOptions, callback) {
-    if (is.fn(gaxOptions)) {
-      callback = gaxOptions;
-      gaxOptions = {};
-    }
+  exists(gaxOptions?: CallOptions): Promise<ExistsResponse>;
+  exists(callback: ExistsCallback): void;
+  exists(gaxOptions: CallOptions, callback: ExistsCallback): void;
+  exists(
+      gaxOptionsOrcallback?: CallOptions|ExistsCallback,
+      callback?: ExistsCallback): void|Promise<ExistsResponse> {
+    const gaxOptions =
+        typeof gaxOptionsOrcallback === 'object' ? gaxOptionsOrcallback : {};
+    callback = typeof gaxOptionsOrcallback === 'function' ?
+        gaxOptionsOrcallback :
+        callback;
 
-    this.getMetadata(gaxOptions, err => {
+    this.getMetadata(gaxOptions, (err: ServiceError|null) => {
       if (err) {
         if (err instanceof FamilyError) {
-          callback(null, false);
+          callback!(null, false);
           return;
         }
 
-        callback(err);
+        callback!(err);
         return;
       }
 
-      callback(null, true);
+      callback!(null, true);
     });
   }
 
@@ -256,28 +294,32 @@ Please use the format 'follows' or '${table.name}/columnFamilies/my-family'.`);
    * @example <caption>include:samples/document-snippets/family.js</caption>
    * region_tag:bigtable_get_family
    */
-  get(options, callback) {
-    if (is.fn(options)) {
-      callback = options;
-      options = {};
-    }
+  get(optionsOrCallback?: GetFamilyOptions|GetFamilyCallback,
+      callback?: GetFamilyCallback): void|Promise<GetFamilyResponse> {
+    const options =
+        typeof optionsOrCallback === 'object' ? optionsOrCallback : {};
+    callback =
+        typeof optionsOrCallback === 'function' ? optionsOrCallback : callback;
 
     const autoCreate = !!options.autoCreate;
     const gaxOptions = options.gaxOptions;
 
-    this.getMetadata(gaxOptions, (err, metadata) => {
-      if (err) {
-        if (err instanceof FamilyError && autoCreate) {
-          this.create({gaxOptions, rule: options.rule}, callback);
-          return;
-        }
+    this.getMetadata(
+        gaxOptions!,
+        (err?: ServiceError|null,
+         metadata?: google.bigtable.v2.IFamily|null) => {
+          if (err) {
+            if (err instanceof FamilyError && autoCreate) {
+              this.create({gaxOptions, rule: options.rule}, callback!);
+              return;
+            }
 
-        callback(err);
-        return;
-      }
+            callback!(err);
+            return;
+          }
 
-      callback(null, this, metadata);
-    });
+          callback!(null, this, metadata);
+        });
   }
 
   /**
@@ -293,28 +335,36 @@ Please use the format 'follows' or '${table.name}/columnFamilies/my-family'.`);
    * @example <caption>include:samples/document-snippets/family.js</caption>
    * region_tag:bigtable_get_family_meta
    */
-  getMetadata(gaxOptions, callback) {
-    if (is.fn(gaxOptions)) {
-      callback = gaxOptions;
-      gaxOptions = {};
-    }
+  getMetadata(gaxOptions?: CallOptions): Promise<GetFamilyMetadataResponse>;
+  getMetadata(callback: GetFamilyMetadataCallback): void;
+  getMetadata(gaxOptions: CallOptions, callback: GetFamilyMetadataCallback):
+      void;
+  getMetadata(
+      gaxOptionsOrcallback?: CallOptions|GetFamilyMetadataCallback,
+      callback?: GetFamilyMetadataCallback):
+      void|Promise<GetFamilyMetadataResponse> {
+    const gaxOptions =
+        typeof gaxOptionsOrcallback === 'object' ? gaxOptionsOrcallback : {};
+    callback = typeof gaxOptionsOrcallback === 'function' ?
+        gaxOptionsOrcallback :
+        callback;
 
-    this.table.getFamilies(gaxOptions, (err, families) => {
+    this.table.getFamilies(gaxOptions, (err: Error, families: Family[]) => {
       if (err) {
-        callback(err);
+        callback!(err);
         return;
       }
 
       for (let i = 0, l = families.length; i < l; i++) {
         if (families[i].name === this.name) {
           this.metadata = families[i].metadata;
-          callback(null, this.metadata);
+          callback!(null, this.metadata as google.bigtable.v2.IFamily);
           return;
         }
       }
 
       const error = new FamilyError(this.id);
-      callback(error);
+      callback!(error);
     });
   }
 
@@ -338,12 +388,23 @@ Please use the format 'follows' or '${table.name}/columnFamilies/my-family'.`);
    * @example <caption>include:samples/document-snippets/family.js</caption>
    * region_tag:bigtable_set_family_meta
    */
-  setMetadata(metadata, gaxOptions, callback) {
-    if (is.fn(gaxOptions)) {
-      callback = gaxOptions;
-      gaxOptions = {};
-    }
-
+  setMetadata(metadata: Metadata, gaxOptions?: CallOptions):
+      Promise<SetFamilyMetadataResponse>;
+  setMetadata(metadata: Metadata, callback: SetFamilyMetadataCallback): void;
+  setMetadata(
+      metadata: Metadata, gaxOptions: CallOptions,
+      callback: SetFamilyMetadataCallback): void;
+  setMetadata(
+      metadata: Metadata,
+      gaxOptionsOrcallback?: CallOptions|SetFamilyMetadataCallback,
+      callback?: SetFamilyMetadataCallback):
+      void|Promise<SetFamilyMetadataResponse> {
+    const gaxOptions =
+        typeof gaxOptionsOrcallback === 'object' ? gaxOptionsOrcallback : {};
+    callback = typeof gaxOptionsOrcallback === 'function' ?
+        gaxOptionsOrcallback :
+        callback;
+    // tslint:disable-next-line no-any
     const mod: any = {
       id: this.id,
       update: {},
@@ -365,13 +426,12 @@ Please use the format 'follows' or '${table.name}/columnFamilies/my-family'.`);
           reqOpts,
           gaxOpts: gaxOptions,
         },
-        (...args) => {
+        (...args: Arguments<google.bigtable.admin.v2.ITable>) => {
           if (args[1]) {
-            this.metadata = args[1].columnFamilies[this.id];
+            this.metadata = args[1].columnFamilies![this.id];
             args.splice(1, 0, this.metadata);
           }
-
-          callback(...args);
+          callback!(...args);
         });
   }
 }

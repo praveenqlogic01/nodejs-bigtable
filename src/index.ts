@@ -49,6 +49,9 @@ import * as through from 'through2';
 import {AppProfile} from './app-profile';
 import {Cluster} from './cluster';
 import {Instance} from './instance';
+import {ServiceError} from 'grpc';
+import {Family} from './family';
+import {google as btTypes} from '../proto/bigtable';
 
 const retryRequest = require('retry-request');
 const streamEvents = require('stream-events');
@@ -56,6 +59,61 @@ const streamEvents = require('stream-events');
 const PKG = require('../../package.json');
 const v2 = require('./v2');
 const {grpc} = new gax.GrpcClient();
+
+type RequestCallback<T, R = void> =
+    R extends void ? NormalCallback<T>: FullCallback<T, R>;
+type NormalCallback<T> = (err: ServiceError|null, response?: T|null) => void;
+type FullCallback<T, R> =
+    (err: ServiceError|null, response?: T|null, apiResponse?: R|null) => void;
+
+type ApiResponse<T, R = void> =
+    R extends void ? NormalResponse<T>: FullResponse<T, R>;
+type NormalResponse<T> = [T];
+type FullResponse<T, R> = [T, R];
+
+// tslint:disable-next-line no-any
+export type Arguments<T> = [(ServiceError | null),(T| null)?,any?];
+interface OptionInterface {
+  gaxOptions?: gax.CallOptions;
+}
+export interface CreateFamilyTableOptions extends OptionInterface {
+  rule?: Rule;
+}
+
+
+export interface Rule {
+  age?: {};
+  versions?: number;
+  intersect?: boolean;
+  union?: boolean;
+}
+
+export interface GetFamilyOptions extends OptionInterface {
+  autoCreate?: boolean;
+  rule?: Rule;
+}
+
+export type CreateFamilyCallback =
+    RequestCallback<Family, btTypes.bigtable.v2.IFamily>;
+export type CreateFamilyResponse =
+    ApiResponse<Family, btTypes.bigtable.v2.IFamily>;
+export type DeleteFamilyCallback = RequestCallback<btTypes.protobuf.Empty>;
+export type EmptyResponse = ApiResponse<btTypes.protobuf.IEmpty>;
+export type ExistsCallback = RequestCallback<boolean>;
+export type ExistsResponse = ApiResponse<boolean>;
+export type GetFamilyCallback =
+    RequestCallback<Family, btTypes.bigtable.v2.IFamily>;
+export type GetFamilyResponse =
+    ApiResponse<Family, btTypes.bigtable.v2.IFamily>;
+export type GetFamilyMetadataCallback =
+    RequestCallback<btTypes.bigtable.v2.IFamily>;
+export type GetFamilyMetadataResponse =
+    ApiResponse<btTypes.bigtable.v2.IFamily>;
+export type SetFamilyMetadataCallback = RequestCallback<
+    btTypes.bigtable.admin.v2.ITable,
+    {[k: string]: btTypes.bigtable.admin.v2.IColumnFamily}>;
+export type SetFamilyMetadataResponse =
+    ApiResponse<btTypes.bigtable.admin.v2.ITable>;
 
 /**
  * @typedef {object} ClientConfig
