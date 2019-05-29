@@ -49,6 +49,7 @@ import * as through from 'through2';
 import {AppProfile} from './app-profile';
 import {Cluster} from './cluster';
 import {Instance} from './instance';
+import {google as btTypes} from '../proto/bigtable';
 
 const retryRequest = require('retry-request');
 const streamEvents = require('stream-events');
@@ -56,6 +57,9 @@ const streamEvents = require('stream-events');
 const PKG = require('../../package.json');
 const v2 = require('./v2');
 const {grpc} = new gax.GrpcClient();
+
+// filters
+export type IRowFilter = btTypes.bigtable.v2.IRowFilter;
 
 /**
  * @typedef {object} ClientConfig
