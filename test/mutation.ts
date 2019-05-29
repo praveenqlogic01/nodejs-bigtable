@@ -18,7 +18,8 @@ import * as assert from 'assert';
 import * as Long from 'long';
 import * as sn from 'sinon';
 
-import {IMutateRowRequest, Mutation} from '../src/mutation.js';
+import {IMutateRowRequest, IMutation, Mutation, MutationConstructorObj, MutationSettingsObj, Value} from '../src/mutation.js';
+
 
 const sinon = sn.createSandbox();
 
@@ -116,6 +117,7 @@ describe('Bigtable/Mutation', function() {
     it('should pack numbers into int64 values', function() {
       const num = 10;
       const encoded = Mutation.convertToBytes(num);
+      // tslint:disable-next-line no-any
       const decoded = Long.fromBytes(encoded as any).toNumber();
 
       assert.strictEqual(num, decoded);
@@ -150,15 +152,17 @@ describe('Bigtable/Mutation', function() {
   });
 
   describe('encodeSetCell', function() {
-    let convertCalls;
+    let convertCalls: Value[];
+    // tslint:disable-next-line no-any
     const fakeTime: any = new Date('2018-1-1');
+    // tslint:disable-next-line no-any
     const realTimestamp: any = new Date();
 
     beforeEach(function() {
       sinon.stub(global, 'Date').returns(fakeTime);
       convertCalls = [];
       sinon.stub(Mutation, 'convertToBytes').callsFake(function(value) {
-        convertCalls.push(value);
+        convertCalls.push(value as Value);
         return value;
       });
     });
@@ -252,7 +256,8 @@ describe('Bigtable/Mutation', function() {
   });
 
   describe('encodeDelete', function() {
-    let convert;
+    let convert: Function;
+    // tslint:disable-next-line no-any
     let convertCalls: any[] = [];
 
     before(function() {
@@ -264,7 +269,8 @@ describe('Bigtable/Mutation', function() {
     });
 
     after(function() {
-      Mutation.convertToBytes = convert;
+      sinon.stub(Mutation, 'convertToBytes').value(convert);
+      // Mutation.convertToBytes = convert;
     });
 
     beforeEach(function() {
@@ -332,6 +338,7 @@ describe('Bigtable/Mutation', function() {
 
     it('should optionally accept a timerange for column requests', function() {
       const createTimeRange = Mutation.createTimeRange;
+      // tslint:disable-next-line no-any
       const timeCalls: any[] = [];
       const fakeTimeRange = {a: 'a'};
 
@@ -371,7 +378,7 @@ describe('Bigtable/Mutation', function() {
   });
 
   describe('parse', function() {
-    let toProto;
+    let toProto: () => IMutateRowRequest;
     let toProtoCalled = false;
     const fakeData = {a: 'a'} as IMutateRowRequest;
 
@@ -431,7 +438,8 @@ describe('Bigtable/Mutation', function() {
   });
 
   describe('toProto', function() {
-    let convert;
+    let convert: Function;
+    // tslint:disable-next-line no-any
     let convertCalls: any[] = [];
 
     before(function() {
@@ -443,7 +451,7 @@ describe('Bigtable/Mutation', function() {
     });
 
     after(function() {
-      Mutation.convertToBytes = convert;
+      sinon.stub(Mutation, 'convertToBytes').value(convert);
     });
 
     beforeEach(function() {
@@ -473,17 +481,18 @@ describe('Bigtable/Mutation', function() {
     });
 
     it('should encode delete mutations when method is delete', function() {
-      const fakeEncoded = [{b: 'b'}];
+      const fakeEncoded = [{b: 'b'} as IMutation];
       const data = {
         key: 'b',
         method: 'delete',
         data: [],
-      };
+      } as MutationConstructorObj;
 
-      (Mutation as any).encodeDelete = function(_data) {
+      sinon.stub(Mutation, 'encodeDelete').callsFake((_data) => {
         assert.strictEqual(_data, data.data);
         return fakeEncoded;
-      };
+      });
+
 
       const mutation = new Mutation(data).toProto();
 
